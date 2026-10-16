@@ -5,3 +5,6 @@ export * from "./capture/webgl.js";
 export * from "./capture/webgpu.js";
 export * from "./destinations/websocket.js";
 export * from "./destinations/directory.js";
+
+export * from "./destinations/memory.js";
+export * from "./destinations/file.js";

@@ -5,13 +5,13 @@
 Start the companion in a terminal:
 
 ```sh
-npx three-recording-studio --directory ./recordings
+npx three-recording-receiver --directory ./recordings
 ```
 
 For an unpublished checkout use `npm run receiver -- --directory ./recordings`. The receiver prints a WebSocket URL and token. It listens on loopback, not the external network. Default accepted browser origins use `127.0.0.1` or `localhost` on ports 5187, 5190, and 5191.
 
 ```sh
-npx three-recording-studio --port 8787 --directory ./recordings \
+npx three-recording-receiver --port 8787 --directory ./recordings \
   --origins http://localhost:3000
 ```
 
@@ -51,10 +51,22 @@ Implement `RenderDestination`: `open(job, signal)` returns saved frame indices, 
 
 A destination must honor cancellation and propagate failures. A WebSocket send completing is not evidence of persistence; acknowledge at the receiving storage boundary. Remote service authentication and deployment are application responsibilities. A hosted HTTPS demo may require a secure WebSocket endpoint or running the demo locally to reach a local receiver.
 
-## Pick a PNG folder
+## Demo destinations
 
-In the demo choose **PNG sequence → Folder → Choose folder…**. The browser requests write access to the selected directory. Each render creates a fresh subfolder containing numbered PNGs and `render.json` with the settings and completed frame indices. Cancelled renders keep completed files. Folder exports start a new run; use the receiver for resumable exports. **Render image** saves the current frame to the selected PNG destination and also keeps it in the preview gallery.
+The demo separates **Format** from **Save to**. Both MP4 and PNG sequences support **Memory**, **Folder**, and **Receiver**.
 
-Select **Receiver URL** to use the existing WebSocket receiver instead. Browsers without a directory picker default to this option.
+| Destination | PNG sequence                                        | MP4                                                  |
+| ----------- | --------------------------------------------------- | ---------------------------------------------------- |
+| Memory      | Channel playback, frame scrubbing, and ZIP download | Channel playback and manual download                 |
+| Folder      | Writes each PNG as it renders                       | Saves the finalized MP4 after encoding               |
+| Receiver    | Sends each PNG with durable acknowledgement         | Sends the finalized MP4 with durable acknowledgement |
 
-The library exports `DirectoryDestination(directoryHandle)`, which implements `RenderDestination`. Call `showDirectoryPicker({mode: "readwrite"})` from a user click, then pass the resulting handle to the destination.
+In-memory PNG sequences have a 128 MiB encoded-output limit, including ZIP overhead. ZIP creation and preview retention require additional memory. Retained channel results are limited to 256 MiB in total; PNG frames and their ZIP both count toward that limit. MP4 encoding has a 256 MiB output limit for every destination. These limits bound retained output, not total browser heap usage.
+
+For folder output, select **Save to → Folder → Choose folder…**. The browser requests write access. Each render creates a fresh subfolder. PNG exports include numbered images and `render.json`; MP4 exports contain the completed movie. Cancelled PNG renders keep completed files. Folder exports start a new run; use the receiver for resumable PNG exports. Browsers without a directory picker can use Memory or Receiver.
+
+Select **Save to → Receiver**, then enter the URL and token printed by the companion. The status reports connection, completion, and errors. MP4 uploads use the same authentication and save a movie plus `manifest.json`; they require the updated companion and are not resumable. MP4 playback remains available in the channel after a successful folder or receiver save.
+
+**Render image** always produces a PNG, saves it to the selected destination, and retains it in the channel preview.
+
+The library exports `MemorySequenceDestination`, `DirectoryDestination(directoryHandle)`, and `saveFileToDirectory(directoryHandle, job, blob, signal)`. Call `showDirectoryPicker({mode: "readwrite"})` from a user click. For MP4 receiver saving, call `WebSocketDestination.saveMp4(job, blob, signal)` with the finalized blob from `Mp4Destination.onComplete`.

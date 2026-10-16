@@ -1,3 +1,6 @@
+import { setupTooltips } from "../src/ui/tooltip";
+import { MemorySequenceDestination, saveFileToDirectory } from "../src/index";
+import type { RenderDestination } from "../src/core/types";
 import * as THREE from "three";
 import { WebGPURenderer, ClippingGroup } from "three/webgpu";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -279,7 +282,10 @@ async function main() {
   });
   const destination = document.createElement("div");
   destination.className = "destination";
-  destination.innerHTML = `<label class="studio-outlined-field"><span>Save as</span><select id="format"><option value="mp4">MP4</option><option value="frames">PNG sequence</option></select></label><div id="png-fields" hidden><label class="studio-outlined-field"><span>PNG destination</span><select id="png-destination"><option value="folder">Folder</option><option value="receiver">Receiver URL</option></select></label><div id="folder-fields"><button id="pick-folder" type="button">Choose folder…</button><small id="folder-status" role="status">No folder selected</small></div></div><form id="receiver-fields" hidden><label>Receiver URL<input id="receiver-url" value="ws://127.0.0.1:8787"></label><label>Session token<input id="receiver-token" type="password" autocomplete="off" placeholder="Paste token from receiver terminal"></label><small>Run: npx three-recording-studio --directory ./recordings</small></form>`;
+  destination.innerHTML = `<label class="studio-outlined-field"><span>Format</span><select id="format" aria-label="Format"><option value="mp4">MP4</option><option value="frames">PNG sequence</option></select></label>
+  <label class="studio-outlined-field"><span>Save to</span><select id="save-target" aria-label="Save to"><option value="memory">Memory</option><option value="folder">Folder</option><option value="receiver">Receiver</option></select></label>
+  <div id="folder-fields" hidden><button id="pick-folder" type="button">Choose folder…</button><small id="folder-status" role="status">No folder selected</small></div>
+  <form id="receiver-fields" hidden><label>Receiver URL<input id="receiver-url" value="ws://127.0.0.1:8787"></label><label>Session token<input id="receiver-token" type="password" autocomplete="off" placeholder="Paste token from receiver terminal"></label><small>Run: npx three-recording-receiver --directory ./recordings</small><small id="receiver-status" role="status">Not connected. Connects when rendering starts.</small></form>`;
   const settingsSection = (title: string, content: HTMLElement) => {
     const section = document.createElement("details");
     section.className = "trs-accordion";
@@ -294,8 +300,8 @@ async function main() {
     .querySelector<HTMLFormElement>("#receiver-fields")!
     .addEventListener("submit", (event) => event.preventDefault());
   const select = destination.querySelector<HTMLSelectElement>("#format")!;
-  const pngDestination =
-    destination.querySelector<HTMLSelectElement>("#png-destination")!;
+  const saveTarget =
+    destination.querySelector<HTMLSelectElement>("#save-target")!;
   const picker = destination.querySelector<HTMLButtonElement>("#pick-folder")!;
   const folderStatus =
     destination.querySelector<HTMLElement>("#folder-status")!;
@@ -305,22 +311,28 @@ async function main() {
     }) => Promise<FileSystemDirectoryHandle>;
   };
   let directory: FileSystemDirectoryHandle | undefined;
-  if (!pickerWindow.showDirectoryPicker) {
-    pngDestination.value = "receiver";
-    pngDestination.options[0].disabled = true;
-    folderStatus.textContent =
-      "Folder picking is unavailable in this browser. Use the receiver URL.";
-  }
   const syncDestination = () => {
-    destination.querySelector<HTMLElement>("#png-fields")!.hidden =
-      select.value !== "frames";
+    const folderOption = saveTarget.querySelector<HTMLOptionElement>(
+      'option[value="folder"]',
+    )!;
+    folderOption.disabled = !pickerWindow.showDirectoryPicker;
+    if (folderOption.disabled && saveTarget.value === "folder")
+      saveTarget.value = "memory";
     destination.querySelector<HTMLElement>("#folder-fields")!.hidden =
-      pngDestination.value !== "folder";
+      saveTarget.value !== "folder";
     destination.querySelector<HTMLElement>("#receiver-fields")!.hidden =
-      select.value !== "frames" || pngDestination.value !== "receiver";
+      saveTarget.value !== "receiver";
+    saveTarget.dataset.tooltip =
+      saveTarget.value === "memory"
+        ? select.value === "frames"
+          ? "PNG playback and ZIP download. Buffer limit: 128 MiB."
+          : "Playback and download. Buffer limit: 256 MiB."
+        : select.value === "mp4"
+          ? "MP4 is saved after encoding finishes. Buffer limit: 256 MiB."
+          : "Frames are saved as they render.";
   };
   select.onchange = syncDestination;
-  pngDestination.onchange = syncDestination;
+  saveTarget.onchange = syncDestination;
   picker.onclick = async () => {
     try {
       const selected = await pickerWindow.showDirectoryPicker!({
@@ -333,18 +345,54 @@ async function main() {
         folderStatus.textContent = `Could not open folder: ${(error as Error).message}`;
     }
   };
-  const createPngDestination = () => {
-    if (pngDestination.value === "folder") {
+  const createPngDestination = (): RenderDestination => {
+    if (saveTarget.value === "memory") {
+      const channel = panel.channel;
+      return new MemorySequenceDestination({
+        onComplete: (sequence) => panel.addSequenceResult(sequence, channel),
+      });
+    }
+    if (saveTarget.value === "folder") {
       if (!directory) throw new Error("Choose a folder before rendering PNGs.");
       return new DirectoryDestination(directory);
     }
-    return new WebSocketDestination({
+    const receiver = new WebSocketDestination({
       url: destination.querySelector<HTMLInputElement>("#receiver-url")!.value,
       token:
         destination.querySelector<HTMLInputElement>("#receiver-token")!.value,
     });
+    const status = destination.querySelector<HTMLElement>("#receiver-status")!;
+    let failed = false;
+    const run = async <T>(action: () => Promise<T>) => {
+      try {
+        return await action();
+      } catch (error) {
+        failed = true;
+        status.textContent = `Receiver error: ${(error as Error).message}`;
+        throw error;
+      }
+    };
+    return {
+      async open(job, signal) {
+        failed = false;
+        status.textContent = "Connecting…";
+        const saved = await run(() => receiver.open(job, signal));
+        status.textContent = "Connected. Saving frames.";
+        return saved;
+      },
+      write: (frame, context) => run(() => receiver.write(frame, context)),
+      async close() {
+        await run(() => receiver.close());
+        status.textContent = "Saved. Connection closed.";
+      },
+      async abort() {
+        await receiver.abort();
+        if (!failed) status.textContent = "Stopped. Connection closed.";
+      },
+    };
   };
   syncDestination();
+  setupTooltips(destination, "#save-target");
   const createDestination = async (job: RenderJob) => {
     const content = JSON.stringify({
       version: 3,
@@ -379,11 +427,47 @@ async function main() {
       .join("");
     if (select.value === "frames") return createPngDestination();
     const channel = panel.channel;
-    return new Mp4Destination({
-      onComplete(blob) {
+    const target = saveTarget.value;
+    const folder = directory;
+    if (target === "folder" && !folder)
+      throw new Error("Choose a folder before rendering.");
+    const url =
+      destination.querySelector<HTMLInputElement>("#receiver-url")!.value;
+    const token =
+      destination.querySelector<HTMLInputElement>("#receiver-token")!.value;
+    let signal: AbortSignal;
+    const mp4 = new Mp4Destination({
+      async onComplete(blob) {
+        if (target === "folder")
+          await saveFileToDirectory(folder!, job, blob, signal);
+        if (target === "receiver") {
+          const status =
+            destination.querySelector<HTMLElement>("#receiver-status")!;
+          status.textContent = "Connecting and saving MP4…";
+          try {
+            await new WebSocketDestination({ url, token }).saveMp4(
+              job,
+              blob,
+              signal,
+            );
+            status.textContent = "Saved. Connection closed.";
+          } catch (error) {
+            status.textContent = `Receiver error: ${(error as Error).message}`;
+            throw error;
+          }
+        }
         panel.addResult(blob, `${job.fileName ?? job.id}.mp4`, channel);
       },
     });
+    return {
+      open: (job: RenderJob, abortSignal: AbortSignal) => {
+        signal = abortSignal;
+        return mp4.open(job, abortSignal);
+      },
+      write: mp4.write.bind(mp4),
+      close: mp4.close.bind(mp4),
+      abort: mp4.abort.bind(mp4),
+    };
   };
   const panelHost = document.createElement("div");
   hosts.settings.append(panelHost);
@@ -392,8 +476,11 @@ async function main() {
     renderIcon,
     allowFloating: false,
     imageDestination: (job) =>
-      select.value === "frames" ? createDestination(job) : undefined,
-    currentFrame: () => Math.round(position * panel.getJob().fps),
+      saveTarget.value !== "memory" ? createPngDestination() : undefined,
+    currentFrame: () => {
+      const job = panel.getJob();
+      return Math.round(position / (job.sampleIntervalSeconds ?? 1 / job.fps));
+    },
     previewContainer: hosts.preview,
     session,
     job: {

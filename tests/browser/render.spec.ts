@@ -456,6 +456,7 @@ test("PNG folder selection writes sequences and stills into separate directories
   await page.goto("/");
   await page.waitForFunction(() => !!(window as any).trsDemo);
   await page.locator("#format").selectOption("frames");
+  await page.locator("#save-target").selectOption("folder");
   await expect(page.locator("#pick-folder")).toBeVisible();
   await expect(page.locator("#receiver-fields")).toBeHidden();
   await page.getByRole("button", { name: "Render", exact: true }).click();
@@ -492,7 +493,10 @@ test("PNG folder selection writes sequences and stills into separate directories
           ).text(),
         ),
       );
-      const blob = await (await dir.getFileHandle("000000.png")).getFile();
+      const prefix = manifests[manifests.length - 1].job.fileName;
+      const blob = await (
+        await dir.getFileHandle(prefix ? `${prefix}-000000.png` : "000000.png")
+      ).getFile();
       const image = await createImageBitmap(blob);
       sizes.push([image.width, image.height]);
       image.close();
@@ -508,12 +512,12 @@ test("PNG folder selection writes sequences and stills into separate directories
     [64, 48],
     [64, 48],
   ]);
-  await page.locator("#png-destination").selectOption("receiver");
+  await page.locator("#save-target").selectOption("receiver");
   await expect(page.locator("#receiver-fields")).toBeVisible();
   await expect(page.locator("#folder-fields")).toBeHidden();
 });
 
-test("PNG destination falls back to receiver when folder picker is unsupported", async ({
+test("Memory and receiver remain available when folder picker is unsupported", async ({
   page,
 }) => {
   await page.addInitScript(() => {
@@ -522,7 +526,11 @@ test("PNG destination falls back to receiver when folder picker is unsupported",
   await page.goto("/");
   await page.waitForFunction(() => !!(window as any).trsDemo);
   await page.locator("#format").selectOption("frames");
-  await expect(page.locator("#png-destination")).toHaveValue("receiver");
+  await expect(page.locator("#save-target")).toHaveValue("memory");
+  await expect(
+    page.locator('#save-target option[value="folder"]'),
+  ).toHaveJSProperty("disabled", true);
+  await page.locator("#save-target").selectOption("receiver");
   await expect(page.locator("#receiver-fields")).toBeVisible();
 });
 
@@ -705,7 +713,12 @@ test("camera frame follows output aspect and camera selection", async ({
     .toBe(300);
   await page.getByLabel("Composition guides").selectOption("thirds");
   await expect(page.locator(".composition path")).toHaveCount(2);
-  await page.getByLabel("Safe areas", { exact: false }).check();
+  const safeAreas = page.getByRole("button", {
+    name: "Safe areas (90% / 80%)",
+    exact: true,
+  });
+  if ((await safeAreas.getAttribute("aria-pressed")) !== "true")
+    await safeAreas.click();
   await expect(page.locator(".safe-areas")).toBeVisible();
   await page
     .getByLabel("Render camera", { exact: true })
@@ -1009,4 +1022,246 @@ test("WebGPU portrait PNG captures exclude GPU row padding", async ({
       .getByRole("button", { name: "Delete render", exact: true })
       .click();
   }
+});
+
+test("all save targets remain available across formats", async ({ page }) => {
+  await page.goto("/demo/");
+  await page.waitForFunction(() => !!(window as any).trsDemo);
+  for (const format of ["mp4", "frames"]) {
+    await page.locator("#format").selectOption(format);
+    for (const value of ["memory", "folder", "receiver"]) {
+      await page.locator("#save-target").selectOption(value);
+      await expect(page.locator("#save-target")).toHaveValue(value);
+    }
+  }
+});
+
+test("sidebar timelapse maps scene sampling separately from output FPS", async ({
+  page,
+}) => {
+  await page.goto("/?backend=webgl");
+  await page.waitForFunction(() => !!(window as any).trsDemo);
+  const interval = page.getByLabel("Capture interval (scene seconds)");
+  await expect(interval).toBeHidden();
+  await page
+    .getByRole("combobox", { name: "Sampling", exact: true })
+    .selectOption("Timelapse");
+  await interval.fill("2");
+  await expect(page.locator(".trs-sampling-speed")).toContainText("60×");
+  let job = await page.evaluate(() => (window as any).trsDemo.panel.getJob());
+  expect(job.sampleIntervalSeconds).toBe(2);
+  expect(job.fps).toBe(30);
+  expect(job).not.toHaveProperty("samplingMode");
+  await page.getByLabel("Frames / second", { exact: true }).fill("24");
+  await expect(page.locator(".trs-sampling-speed")).toContainText("48×");
+  await page
+    .getByRole("combobox", { name: "Sampling", exact: true })
+    .selectOption("Normal");
+  await expect(interval).toBeHidden();
+  job = await page.evaluate(() => (window as any).trsDemo.panel.getJob());
+  expect(job).not.toHaveProperty("sampleIntervalSeconds");
+});
+
+test("PNG memory sequence supports playback, scrubbing and ZIP download", async ({
+  page,
+}) => {
+  await page.goto("/demo/");
+  await page.waitForFunction(() => !!(window as any).trsDemo);
+  await page.locator("#format").selectOption("frames");
+  for (const [name, value] of [
+    ["width", "64"],
+    ["height", "48"],
+    ["endFrame", "1"],
+  ])
+    await page.locator(`.trs-controls [name=${name}]`).fill(value);
+  await page.getByRole("button", { name: "Render", exact: true }).click();
+  await expect(page.locator(".trs-status")).toContainText("completed · 2 / 2");
+  await expect(
+    page.getByRole("button", { name: "Play sequence", exact: true }),
+  ).toBeVisible();
+  await page.getByLabel("Sequence frame").fill("1");
+  await expect(page.locator(".trs-sequence-tools")).toContainText("2 / 2");
+  const pending = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download", exact: true }).click();
+  const download = await pending;
+  expect(download.suggestedFilename()).toMatch(/\.zip$/);
+  const stream = await download.createReadStream();
+  const chunks = [];
+  for await (const chunk of stream!) chunks.push(chunk);
+  const zip = Buffer.concat(chunks);
+  expect(zip.readUInt32LE(0)).toBe(0x04034b50);
+  expect(zip.readUInt16LE(zip.length - 12)).toBe(2);
+  await page
+    .getByRole("button", { name: "Delete render", exact: true })
+    .click();
+  await expect(page.locator(".trs-sequence-tools")).toBeHidden();
+});
+
+test("MP4 folder output saves a finalized file and retains playback", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    (window as any).showDirectoryPicker = async () => {
+      const root = await navigator.storage.getDirectory();
+      return ((window as any).pickedFolder = await root.getDirectoryHandle(
+        crypto.randomUUID(),
+        { create: true },
+      ));
+    };
+  });
+  await page.goto("/demo/");
+  await page.waitForFunction(() => !!(window as any).trsDemo);
+  await page.locator("#save-target").selectOption("folder");
+  await page.locator("#pick-folder").click();
+  for (const [name, value] of [
+    ["width", "64"],
+    ["height", "48"],
+    ["endFrame", "1"],
+  ])
+    await page.locator(`.trs-controls [name=${name}]`).fill(value);
+  await page.getByRole("button", { name: "Render", exact: true }).click();
+  await expect(page.locator(".trs-status")).toContainText("completed · 2 / 2");
+  const files = await page.evaluate(async () => {
+    const results = [];
+    for await (const directory of (window as any).pickedFolder.values()) {
+      for await (const handle of directory.values()) {
+        const file = await handle.getFile();
+        results.push({
+          name: file.name,
+          size: file.size,
+          header: await file.slice(4, 8).text(),
+        });
+      }
+    }
+    return results;
+  });
+  expect(files).toHaveLength(1);
+  expect(files[0].name).toMatch(/\.mp4$/);
+  expect(files[0].header).toBe("ftyp");
+  expect(files[0].size).toBeGreaterThan(100);
+  await expect(page.locator("video.trs-result-video")).toBeVisible();
+});
+
+test("MP4 receiver output persists a completed movie", async ({ page }) => {
+  const { mkdtemp, readFile, readdir, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  // @ts-expect-error standalone receiver ESM
+  const { createReceiver } = await import("../../bin/receiver.mjs");
+  const directory = await mkdtemp(join(tmpdir(), "trs-mp4-"));
+  const receiver = await createReceiver({
+    directory,
+    port: 0,
+    token: "mp4-test-token",
+  });
+  try {
+    await page.goto("/demo/");
+    await page.waitForFunction(() => !!(window as any).trsDemo);
+    await page.locator("#save-target").selectOption("receiver");
+    await page.locator("#receiver-url").fill(`ws://127.0.0.1:${receiver.port}`);
+    await page.locator("#receiver-token").fill("mp4-test-token");
+    for (const [name, value] of [
+      ["width", "64"],
+      ["height", "48"],
+      ["endFrame", "1"],
+    ])
+      await page.locator(`.trs-controls [name=${name}]`).fill(value);
+    await page.getByRole("button", { name: "Render", exact: true }).click();
+    await expect(page.locator(".trs-status")).toContainText(
+      "completed · 2 / 2",
+    );
+    await expect(page.locator("#receiver-status")).toHaveText(
+      "Saved. Connection closed.",
+    );
+    const dirs = await readdir(directory);
+    expect(dirs).toHaveLength(1);
+    const manifest = JSON.parse(
+      await readFile(join(directory, dirs[0], "manifest.json"), "utf8"),
+    );
+    expect(manifest.complete).toBe(true);
+    const mp4 = await readFile(join(directory, dirs[0], manifest.file.file));
+    expect(mp4.subarray(4, 8).toString()).toBe("ftyp");
+    expect(mp4.length).toBe(manifest.file.size);
+    await expect(page.locator("video.trs-result-video")).toBeVisible();
+  } finally {
+    await receiver.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("saved images and videos pan directly over their content", async ({ page }) => {
+  await page.goto("/");
+  await page.waitForFunction(() => !!(window as any).trsDemo);
+  for (const [name, value] of [["width", "320"], ["height", "180"], ["endFrame", "5"]])
+    await page.locator(`.trs-controls [name=${name}]`).fill(value);
+  for (const [action, selector] of [["Render image", "img.trs-image"], ["Render", "video.trs-result-video"]]) {
+    await page.getByRole("button", { name: action, exact: true }).click();
+    const media = page.locator(selector);
+    await expect(media).toBeVisible();
+    await expect.poll(() => media.evaluate((el) => el instanceof HTMLVideoElement ? el.videoWidth : (el as HTMLImageElement).naturalWidth)).toBe(320);
+    await page.getByRole("button", { name: "Fit", exact: true }).click();
+    const before = await media.boundingBox();
+    expect(before).not.toBeNull();
+    await page.mouse.move(before!.x + before!.width / 2, before!.y + before!.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(before!.x + before!.width / 2 + 60, before!.y + before!.height / 2 + 35, { steps: 6 });
+    await page.mouse.up();
+    const after = await media.boundingBox();
+    expect(after!.x - before!.x).toBeCloseTo(60, 0);
+    expect(after!.y - before!.y).toBeCloseTo(35, 0);
+  }
+  await page.getByRole("button", { name: "Fullscreen output", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement?.classList.contains("trs-viewport"))).toBe(true);
+  await expect(page.getByRole("slider", { name: "Video playback position" })).toBeVisible();
+  await page.locator("video.trs-result-video").evaluate(async (video: HTMLVideoElement) => { video.loop = true; await video.play(); });
+  await page.mouse.move(100, 100);
+  await expect(page.locator(".trs-viewport")).toHaveClass(/trs-player-idle/, { timeout: 5000 });
+  await page.mouse.move(130, 110);
+  await expect(page.locator(".trs-viewport")).not.toHaveClass(/trs-player-idle/);
+  await page.locator("video.trs-result-video").evaluate((video: HTMLVideoElement) => { video.pause(); video.loop = false; });
+  await page.getByRole("button", { name: "Exit output fullscreen", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true);
+  await page.getByRole("button", { name: "Play video", exact: true }).click();
+  await expect.poll(() => page.locator("video.trs-result-video").evaluate((video: HTMLVideoElement) => video.currentTime)).toBeGreaterThan(0);
+});
+
+test("video scrubber updates smoothly, finishes at maximum, and responds to hovered Space", async ({ page }) => {
+  await page.goto("/");
+  await page.waitForFunction(() => !!(window as any).trsDemo);
+  for (const [name, value] of [["width", "160"], ["height", "90"], ["endFrame", "59"]])
+    await page.locator(`.trs-controls [name=${name}]`).fill(value);
+  await page.getByRole("button", { name: "Render", exact: true }).click();
+  const video = page.locator("video.trs-result-video");
+  await expect(video).toBeVisible();
+  await expect.poll(() => video.evaluate((el: HTMLVideoElement) => el.readyState)).toBeGreaterThan(1);
+  await page.locator(".trs-viewport").hover({ position: { x: 20, y: 80 } });
+  await page.locator(".trs-viewport").focus();
+  await page.keyboard.press("Space");
+  await expect.poll(() => video.evaluate((el: HTMLVideoElement) => el.paused)).toBe(false);
+  const changes = await page.evaluate(async () => {
+    const scrub = document.querySelector<HTMLInputElement>('[aria-label="Video playback position"]')!;
+    const values = new Set<string>();
+    const start = performance.now();
+    await new Promise<void>((resolve) => {
+      const sample = () => {
+        values.add(scrub.value);
+        if (performance.now() - start > 350) resolve();
+        else requestAnimationFrame(sample);
+      };
+      sample();
+    });
+    return values.size;
+  });
+  expect(changes).toBeGreaterThan(5);
+  await page.keyboard.press("Space");
+  await expect.poll(() => video.evaluate((el: HTMLVideoElement) => el.paused)).toBe(true);
+  await page.keyboard.press("Space");
+  await expect.poll(() => video.evaluate((el: HTMLVideoElement) => el.ended)).toBe(true);
+  const scrub = page.getByRole("slider", { name: "Video playback position" });
+  await expect.poll(() => scrub.evaluate((el: HTMLInputElement) => Number(el.value) === Number(el.max))).toBe(true);
+  await scrub.evaluate((el: HTMLInputElement) => { el.value = "0"; el.dispatchEvent(new Event("input", { bubbles: true })); });
+  await expect.poll(() => video.evaluate((el: HTMLVideoElement) => el.currentTime)).toBe(0);
+  await scrub.evaluate((el: HTMLInputElement) => { el.value = el.max; el.dispatchEvent(new Event("input", { bubbles: true })); });
+  await expect.poll(() => scrub.evaluate((el: HTMLInputElement) => Number(el.value) === Number(el.max))).toBe(true);
+  await expect(page.getByRole("button", { name: "Play video", exact: true })).toBeVisible();
 });

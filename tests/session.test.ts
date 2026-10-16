@@ -200,3 +200,39 @@ it("still preview captures a copied frame and restores application state", async
   ]);
   expect(s.animation.restore).toHaveBeenCalledOnce();
 });
+
+it("samples scene time independently of output FPS, including resumed frames", async () => {
+  const s = setup([2]);
+  await s.session.start(
+    { ...job, startFrame: 1, sampleIntervalSeconds: 2 },
+    s.destination,
+  );
+  expect(s.events.filter((event) => event.startsWith("seek"))).toEqual([
+    "seek:1:2",
+    "seek:3:6",
+  ]);
+  expect(s.capture.capture).toHaveBeenNthCalledWith(
+    1,
+    expect.objectContaining({ frame: 1, time: 2, delta: 2 }),
+  );
+  expect(s.capture.prepare).toHaveBeenCalledWith(
+    expect.objectContaining({ fps: 30 }),
+  );
+});
+it("uses fractional scene intervals for previews", async () => {
+  const s = setup();
+  await s.session.preview({ ...job, sampleIntervalSeconds: 0.5 }, 3);
+  expect(s.capture.capture).toHaveBeenCalledWith(
+    expect.objectContaining({ frame: 3, time: 1.5, delta: 0.5 }),
+  );
+});
+it.each([0, -1, NaN, Infinity])(
+  "rejects invalid scene interval %s before acquiring the scene",
+  async (sampleIntervalSeconds) => {
+    const s = setup();
+    await expect(
+      s.session.start({ ...job, sampleIntervalSeconds }, s.destination),
+    ).rejects.toThrow("Sample interval");
+    expect(s.events).toEqual([]);
+  },
+);

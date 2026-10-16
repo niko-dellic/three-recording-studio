@@ -119,3 +119,94 @@ it("rejects untrusted origins and unauthenticated writes", async () => {
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+it("preserves scene sampling in the manifest and rejects mismatched resume intervals", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "trs-interval-"));
+  const receiver = await createReceiver({
+    directory,
+    port: 0,
+    token: "secret",
+  });
+  try {
+    let socket = await connect(receiver.port);
+    const sampled = { ...job, sampleIntervalSeconds: 2 };
+    expect(
+      await send(socket, { type: "open", token: "secret", job: sampled }),
+    ).toMatchObject({ type: "opened" });
+    const manifest = JSON.parse(
+      await readFile(join(directory, job.id, "manifest.json"), "utf8"),
+    );
+    expect(manifest.job.sampleIntervalSeconds).toBe(2);
+    await new Promise<void>((resolve) => {
+      socket.once("close", resolve);
+      socket.close();
+    });
+    socket = await connect(receiver.port);
+    expect(
+      (
+        await send(socket, {
+          type: "open",
+          token: "secret",
+          job: { ...sampled, sampleIntervalSeconds: 3 },
+        })
+      ).error,
+    ).toContain("identity changed");
+  } finally {
+    await receiver.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+it("accepts authenticated bounded MP4 files and acknowledges persistence", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "trs-mp4-"));
+  const receiver = await createReceiver({
+    directory,
+    port: 0,
+    token: "secret",
+  });
+  try {
+    const socket = await connect(receiver.port);
+    expect(
+      await send(socket, { type: "open", token: "secret", job }),
+    ).toMatchObject({ type: "opened" });
+    const file = Buffer.from([
+      0, 0, 0, 16, 102, 116, 121, 112, 105, 115, 111, 109, 0, 0, 0, 0,
+    ]);
+    expect(
+      await send(socket, { type: "file", size: file.length }),
+    ).toMatchObject({ type: "file-ready" });
+    expect(await send(socket, file)).toMatchObject({ type: "file-saved" });
+    expect(await send(socket, { type: "finish" })).toMatchObject({
+      type: "finished",
+    });
+    expect(await readFile(join(directory, job.id, job.id + ".mp4"))).toEqual(
+      file,
+    );
+    const manifest = JSON.parse(
+      await readFile(join(directory, job.id, "manifest.json"), "utf8"),
+    );
+    expect(manifest.complete).toBe(true);
+    expect(manifest.file.size).toBe(file.length);
+  } finally {
+    await receiver.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+it("rejects oversized MP4 uploads", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "trs-mp4-limit-"));
+  const receiver = await createReceiver({
+    directory,
+    port: 0,
+    token: "secret",
+  });
+  try {
+    const socket = await connect(receiver.port);
+    await send(socket, { type: "open", token: "secret", job });
+    expect(
+      (await send(socket, { type: "file", size: 256 * 1024 * 1024 + 1 })).error,
+    ).toContain("Invalid MP4 size");
+  } finally {
+    await receiver.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});

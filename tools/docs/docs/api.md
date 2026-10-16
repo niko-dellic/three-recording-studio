@@ -36,6 +36,22 @@ States: `idle`, `preparing`, `rendering`, `paused`, `cancelling`, `completed`, `
 
 Required: `id`, `contentId`, `width`, `height`, `fps`, `startFrame`, `endFrame`. Optional: `cameraFit` (default `auto`), `transparent` (default false). Dimensions and frames are integers; FPS may be fractional, greater than zero and at most 240. Frame ranges are inclusive. IDs use letters, digits, underscores and hyphens, up to 80 characters.
 
+### Scene-time sampling
+
+Set optional `sampleIntervalSeconds` to a positive, finite number to advance scene time independently of output playback FPS. Omit it for normal sampling (`1 / fps`). Frame indices remain output frame indices, including when resuming or previewing: `time = frame * sampleIntervalSeconds`, and `delta` is the interval. Capture does not wait for real-world time to pass.
+
+```ts
+const timelapseJob = {
+  ...job,
+  fps: 30,
+  sampleIntervalSeconds: 2,
+  startFrame: 0,
+  endFrame: 299,
+};
+```
+
+This produces 300 frames (10 seconds of video) sampling scene times 0 through 598 seconds, at 60× playback speed. The sidebar's Sampling setting exposes Normal and Timelapse modes; Timelapse shows the scene-second interval and calculated speed. Switching back to Normal removes the explicit interval.
+
 ### AnimationAdapter
 
 `acquire()` returns a snapshot; `seek({frame,time,delta,signal})` evaluates scene state; optional `ready(context)` awaits application readiness; `restore(snapshot)` restores application state. Each operation may return a Promise.

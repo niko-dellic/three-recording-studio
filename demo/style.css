@@ -764,3 +764,41 @@ img.brand-mark {
     margin: 8px 8px 0;
   }
 }
+
+.camera-overlay-toggles {
+  display: inline-flex;
+  align-self: flex-start;
+  max-width: 100%;
+}
+.camera-overlay-toggles button {
+  border-radius: 0;
+  background: var(--panel);
+  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.camera-overlay-toggles button + button {
+  margin-left: -1px;
+}
+.camera-overlay-toggles button:first-child {
+  border-radius: 5px 0 0 5px;
+}
+.camera-overlay-toggles button:last-child {
+  border-radius: 0 5px 5px 0;
+}
+.camera-overlay-toggles .selection-check {
+  flex-shrink: 0;
+  visibility: hidden;
+}
+.camera-overlay-toggles button[aria-pressed="true"] .selection-check {
+  visibility: visible;
+}
+.camera-overlay-toggles button:hover {
+  background: var(--surface);
+}
+.camera-overlay-toggles button:focus-visible {
+  position: relative;
+  z-index: 1;
+}

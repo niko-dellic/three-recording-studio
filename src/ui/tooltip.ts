@@ -25,9 +25,10 @@ export function setupTooltips(
     tooltip.setAttribute("role", "tooltip");
     tooltip.setAttribute("popover", "manual");
     tooltip.textContent =
-      button.getAttribute("aria-label") === "100%"
+      button.dataset.tooltip ??
+      (button.getAttribute("aria-label") === "100%"
         ? "Actual size (100%)"
-        : button.getAttribute("aria-label");
+        : button.getAttribute("aria-label"));
     button.removeAttribute("title");
     button.setAttribute("aria-describedby", tooltip.id);
     const colors = win.getComputedStyle(root);

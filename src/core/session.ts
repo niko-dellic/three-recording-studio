@@ -15,6 +15,18 @@ export function validateJob(job: RenderJob): void {
   }
   if (!Number.isFinite(job.fps) || job.fps <= 0 || job.fps > 240)
     throw new Error("FPS must be between 0 and 240");
+  if (
+    job.sampleIntervalSeconds !== undefined &&
+    (!Number.isFinite(job.sampleIntervalSeconds) ||
+      job.sampleIntervalSeconds <= 0)
+  )
+    throw new Error(
+      "Sample interval must be a positive finite number of seconds",
+    );
+  if (
+    !Number.isFinite(job.endFrame * (job.sampleIntervalSeconds ?? 1 / job.fps))
+  )
+    throw new Error("Scene time must be finite");
   if (job.endFrame < job.startFrame)
     throw new Error("End frame precedes start frame");
   if (job.fileName !== undefined && !/^[a-zA-Z0-9_-]{1,80}$/.test(job.fileName))
@@ -176,8 +188,11 @@ export class RenderSession {
         }
         const context = {
           frame,
-          time: frame / job.fps,
-          delta: 1 / job.fps,
+          time:
+            job.sampleIntervalSeconds === undefined
+              ? frame / job.fps
+              : frame * job.sampleIntervalSeconds,
+          delta: job.sampleIntervalSeconds ?? 1 / job.fps,
           signal,
         };
         await this.options.animation.seek(context);

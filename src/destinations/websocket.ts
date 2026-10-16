@@ -123,6 +123,21 @@ export class WebSocketDestination implements RenderDestination {
       throw new Error("Invalid receiver handshake");
     return new Set<number>(response.saved);
   }
+  /** Send a completed, bounded MP4 after authenticating a normal job. */
+  async saveMp4(job: RenderJob, blob: Blob, signal: AbortSignal) {
+    if (blob.size > 256 * 1024 * 1024)
+      throw new Error("MP4 receiver limit is 256 MiB");
+    try {
+      await this.open(job, signal);
+      await this.request({ type: "file", size: blob.size });
+      const saved = await this.request(blob);
+      if (saved.type !== "file-saved")
+        throw new Error("Invalid MP4 acknowledgement");
+      await this.close();
+    } finally {
+      this.disconnect();
+    }
+  }
   async write(frame: CapturedFrame, context: FrameContext) {
     const png = await pngBlob(frame);
     context.signal.throwIfAborted();

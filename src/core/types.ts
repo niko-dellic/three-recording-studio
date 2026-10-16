@@ -2,7 +2,10 @@ export type CameraFit = "auto" | "horizontal" | "vertical";
 export interface RenderSettings {
   width: number;
   height: number;
+  /** Output playback frame rate. */
   fps: number;
+  /** Scene seconds between output frames. Defaults to 1 / fps. */
+  sampleIntervalSeconds?: number;
   startFrame: number;
   endFrame: number;
   cameraFit?: CameraFit;

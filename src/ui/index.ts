@@ -1,3 +1,4 @@
+import type { PngSequence } from "../destinations/memory.js";
 import { setupTooltips } from "./tooltip.js";
 import { RenderSession } from "../core/session.js";
 import type {
@@ -32,6 +33,8 @@ export interface RenderPanelOptions {
   ) => RenderDestination | Promise<RenderDestination>;
   mode?: "embedded" | "floating";
   allowFloating?: boolean;
+  /** Total retained channel blobs, including PNG sequence archives. Default 256 MiB. */
+  maxRetainedBytes?: number;
   imageDestination?: (
     job: RenderJob,
   ) => RenderDestination | undefined | Promise<RenderDestination | undefined>;
@@ -45,6 +48,8 @@ export interface RenderPanelOptions {
       | "pause"
       | "resume"
       | "cancel"
+      | "fullscreen"
+      | "exitFullscreen"
       | "actualSize"
       | "fit"
       | "float"
@@ -78,6 +83,12 @@ export class RenderPanel {
   private zoomOutput: HTMLOutputElement;
   private offset = { x: 0, y: 0 };
   private fitting = true;
+  private fullscreenHideTimer?: number;
+  private previewBeforeFullscreen?: {
+    scale: number;
+    offset: { x: number; y: number };
+    fitting: boolean;
+  };
   private mode: "embedded" | "floating";
   private lastFrame?: number;
   private video: HTMLVideoElement;
@@ -86,7 +97,12 @@ export class RenderPanel {
   private downloadButton: HTMLButtonElement;
   private stillButton: HTMLButtonElement;
   private deleteButton: HTMLButtonElement;
+  private sequenceTools!: HTMLDivElement;
+  private playbackAnimationFrame?: number;
+  private sequenceTimer?: number;
   private artifacts: Array<{
+    bytes: number;
+    sequence?: { urls: string[]; fps: number };
     channel: string;
     url: string;
     filename: string;
@@ -124,6 +140,7 @@ export class RenderPanel {
     for (const name of ["width", "height", "fps"])
       dimensions.append(this.fields.get(name)!.parentElement!);
     this.controls.append(dimensions);
+    this.samplingSettings();
     this.frameRange(options.job.startFrame, options.job.endFrame);
     this.select(
       "cameraFit",
@@ -211,6 +228,10 @@ export class RenderPanel {
           heightField.dispatchEvent(new Event("input", { bubbles: true }));
         }
       });
+      button.insertAdjacentHTML(
+        "afterbegin",
+        '<svg class="selection-check" aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+      );
       orientation.append(button);
       return button;
     });
@@ -297,22 +318,66 @@ export class RenderPanel {
     this.canvas.hidden = true;
     this.canvas.setAttribute("aria-label", "Latest completed render frame");
     this.video = doc.createElement("video");
-    this.video.controls = true;
-    this.video.addEventListener("loadedmetadata", () => this.updateZoom(), {
-      signal: this.controller.signal,
-    });
+    this.video.controls = false;
+    this.video.draggable = false;
+    this.video.addEventListener(
+      "loadedmetadata",
+      () => {
+        this.video.style.width = `${this.video.videoWidth}px`;
+        this.video.style.height = `${this.video.videoHeight}px`;
+        this.fit();
+      },
+      {
+        signal: this.controller.signal,
+      },
+    );
     this.video.playsInline = true;
-    this.video.className = "trs-result-video";
+    this.video.className = "trs-image trs-result-video";
     this.video.hidden = true;
     this.video.setAttribute("aria-label", "Rendered animation");
     this.image = doc.createElement("img");
     this.image.className = "trs-image";
+    this.image.draggable = false;
     this.image.alt = "Saved render";
     this.image.hidden = true;
     this.outputFrame = doc.createElement("div");
     this.outputFrame.className = "trs-image trs-output-frame";
     this.outputFrame.setAttribute("role", "img");
-    this.viewport.append(this.outputFrame, this.canvas, this.video, this.image);
+    this.sequenceTools = doc.createElement("div");
+    this.sequenceTools.className = "trs-sequence-tools";
+    this.sequenceTools.hidden = true;
+    doc.addEventListener(
+      "fullscreenchange",
+      () => {
+        this.syncFullscreenButton();
+        if (doc.fullscreenElement === this.viewport) {
+          this.fit();
+          this.revealFullscreenControls();
+        } else {
+          this.clearFullscreenTimer();
+          this.viewport.classList.remove("trs-player-idle");
+          if (this.previewBeforeFullscreen) {
+            Object.assign(this, this.previewBeforeFullscreen);
+            this.previewBeforeFullscreen = undefined;
+            this.transform();
+          }
+        }
+      },
+      { signal: this.controller.signal },
+    );
+    for (const event of ["pointerdown", "wheel", "keydown"])
+      this.sequenceTools.addEventListener(
+        event,
+        (event) => event.stopPropagation(),
+        { signal: this.controller.signal },
+      );
+    this.viewport.append(
+      this.outputFrame,
+      this.canvas,
+      this.video,
+      this.image,
+      this.sequenceTools,
+    );
     const syncOutputFrame = () => this.syncOutputFrame();
     for (const name of ["width", "height", "transparent"]) {
       this.fields.get(name)!.addEventListener("input", syncOutputFrame, {
@@ -345,7 +410,7 @@ export class RenderPanel {
       );
       if (index >= 0) {
         const [artifact] = this.artifacts.splice(index, 1);
-        URL.revokeObjectURL(artifact.url);
+        this.releaseArtifact(artifact);
       }
       this.video.pause();
       this.refreshResults();
@@ -412,6 +477,10 @@ export class RenderPanel {
           "m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5M4 6h10a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z",
         renderImage:
           "M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4ZM15 13a3 3 0 1 0-6 0a3 3 0 1 0 6 0",
+        fullscreen:
+          "M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M3 16v3a2 2 0 0 0 2 2h3",
+        exitFullscreen:
+          "M8 3v3a2 2 0 0 1-2 2H3M16 3v3a2 2 0 0 0 2 2h3M21 16h-3a2 2 0 0 0-2 2v3M3 16h3a2 2 0 0 1 2 2v3",
         pause: "M8 5v14M16 5v14",
         resume: "M6 3l14 9-14 9z",
         cancel: "M6 6h12v12H6z",
@@ -450,6 +519,8 @@ export class RenderPanel {
           "delete",
           "fit",
           "actualSize",
+          "fullscreen",
+          "exitFullscreen",
           "render",
           "renderImage",
           "pause",
@@ -482,7 +553,7 @@ export class RenderPanel {
     this.cleanup.push(
       setupTooltips(
         this.previewElement,
-        ".trs-slot-tools button, .trs-slot-tools select, .trs-preview-tools button",
+        ".trs-slot-tools button, .trs-slot-tools select, .trs-preview-tools button, .trs-sequence-tools button",
         this.controller.signal,
       ),
     );
@@ -515,6 +586,46 @@ export class RenderPanel {
     this.controls.append(wrapper);
     this.fields.set(key, input);
     return input;
+  }
+  private samplingSettings() {
+    this.select(
+      "samplingMode",
+      "Sampling",
+      ["Normal", "Timelapse"],
+      this.options.job.sampleIntervalSeconds === undefined
+        ? "Normal"
+        : "Timelapse",
+    );
+    const interval = this.field(
+      "sampleIntervalSeconds",
+      "Capture interval (scene seconds)",
+      this.options.job.sampleIntervalSeconds ?? 1,
+    );
+    interval.min = "0";
+    interval.step = "any";
+    interval.required = true;
+    const speed = this.element.ownerDocument.createElement("output");
+    speed.className = "trs-sampling-speed";
+    speed.setAttribute("aria-live", "polite");
+    this.controls.append(speed);
+    const sync = () => {
+      const timelapse = this.fields.get("samplingMode")!.value === "Timelapse";
+      interval.parentElement!.hidden = !timelapse;
+      speed.hidden = !timelapse;
+      const multiplier =
+        Number(interval.value) * Number(this.fields.get("fps")!.value);
+      speed.textContent =
+        Number.isFinite(multiplier) && multiplier > 0
+          ? `${Number(multiplier.toPrecision(6))}× playback speed · scene time`
+          : "Enter a positive capture interval";
+    };
+    this.controls.addEventListener("input", sync, {
+      signal: this.controller.signal,
+    });
+    this.controls.addEventListener("change", sync, {
+      signal: this.controller.signal,
+    });
+    sync();
   }
   private frameRange(start: number, end: number) {
     const doc = this.element.ownerDocument;
@@ -618,6 +729,7 @@ export class RenderPanel {
   getJob(): RenderJob {
     const job = { ...this.options.job, id: this.jobId };
     for (const [key, input] of this.fields) {
+      if (key === "samplingMode" || key === "sampleIntervalSeconds") continue;
       (job as unknown as Record<string, unknown>)[key] =
         input instanceof HTMLInputElement && input.type === "checkbox"
           ? input.checked
@@ -625,6 +737,11 @@ export class RenderPanel {
             ? Number(input.value)
             : input.value;
     }
+    if (this.fields.get("samplingMode")!.value === "Timelapse")
+      job.sampleIntervalSeconds = Number(
+        this.fields.get("sampleIntervalSeconds")!.value,
+      );
+    else delete job.sampleIntervalSeconds;
     job.fileName =
       (job.fileName ?? "render")
         .trim()
@@ -729,16 +846,76 @@ export class RenderPanel {
     return this.channels.value;
   }
   /** Retain a completed render in its channel. Nothing is downloaded automatically. */
-  addResult(blob: Blob, filename: string, channel = this.channel) {
+  addSequenceResult(sequence: PngSequence, channel = this.channel) {
+    this.addResult(
+      sequence.archive,
+      `${sequence.job.fileName ?? sequence.job.id}.zip`,
+      channel,
+      sequence,
+    );
+  }
+  private releaseArtifact(artifact: {
+    url: string;
+    sequence?: { urls: string[] };
+  }) {
+    URL.revokeObjectURL(artifact.url);
+    artifact.sequence?.urls.forEach((url) => URL.revokeObjectURL(url));
+  }
+  private stopSequence() {
+    if (this.playbackAnimationFrame !== undefined) {
+      this.element.ownerDocument.defaultView!.cancelAnimationFrame(
+        this.playbackAnimationFrame,
+      );
+      this.playbackAnimationFrame = undefined;
+    }
+    if (this.sequenceTimer !== undefined) {
+      this.element.ownerDocument.defaultView!.clearInterval(this.sequenceTimer);
+      this.sequenceTimer = undefined;
+    }
+    this.video.onended =
+      this.video.onseeked =
+      this.video.ontimeupdate =
+      this.video.onplay =
+      this.video.onpause =
+      this.video.ondurationchange =
+        null;
+    this.sequenceTools.hidden = true;
+    this.sequenceTools.replaceChildren();
+  }
+  addResult(
+    blob: Blob,
+    filename: string,
+    channel = this.channel,
+    sequence?: PngSequence,
+  ) {
     if (this.controller.signal.aborted) return;
+    const bytes =
+      blob.size +
+      (sequence?.frames.reduce((sum, frame) => sum + frame.blob.size, 0) ?? 0);
+    const retained = this.artifacts
+      .filter((artifact) => artifact.channel !== channel)
+      .reduce((sum, artifact) => sum + artifact.bytes, 0);
+    if (retained + bytes > (this.options.maxRetainedBytes ?? 256 * 1024 * 1024))
+      throw new Error(
+        "Channel memory limit reached. Delete a render or save to Folder or Receiver.",
+      );
     const previous = this.artifacts.findIndex(
       (artifact) => artifact.channel === channel,
     );
     if (previous >= 0) {
       const [replaced] = this.artifacts.splice(previous, 1);
-      URL.revokeObjectURL(replaced.url);
+      this.releaseArtifact(replaced);
     }
     this.artifacts.push({
+      bytes,
+      sequence: sequence
+        ? {
+            urls: sequence.frames.map((frame) =>
+              URL.createObjectURL(frame.blob),
+            ),
+            fps: sequence.job.fps,
+          }
+        : undefined,
       channel,
       filename,
       type: blob.type,
@@ -746,10 +923,89 @@ export class RenderPanel {
     });
     if (channel === this.channel) this.refreshResults();
   }
+  private clearFullscreenTimer() {
+    if (this.fullscreenHideTimer !== undefined)
+      this.element.ownerDocument.defaultView!.clearTimeout(
+        this.fullscreenHideTimer,
+      );
+    this.fullscreenHideTimer = undefined;
+  }
+  private revealFullscreenControls() {
+    this.clearFullscreenTimer();
+    this.viewport.classList.remove("trs-player-idle");
+    if (this.element.ownerDocument.fullscreenElement !== this.viewport) return;
+    this.fullscreenHideTimer =
+      this.element.ownerDocument.defaultView!.setTimeout(() => {
+        const playing = !this.video.hidden
+          ? !this.video.paused
+          : this.sequenceTimer !== undefined;
+        if (
+          playing &&
+          !this.sequenceTools.matches(":hover") &&
+          !this.sequenceTools.querySelector(":focus-visible")
+        )
+          this.viewport.classList.add("trs-player-idle");
+      }, 2500);
+  }
+  private fullscreenButton() {
+    const button = this.button("Fullscreen output", "fullscreen", () => {
+      const doc = this.element.ownerDocument;
+      const action =
+        doc.fullscreenElement === this.viewport
+          ? doc.exitFullscreen()
+          : this.viewport.requestFullscreen();
+      void action.catch((error) => {
+        this.status.textContent = String(error);
+      });
+    });
+    button.dataset.outputFullscreen = "";
+    button.disabled = !this.element.ownerDocument.fullscreenEnabled;
+    return button;
+  }
+  private syncFullscreenButton() {
+    const button = this.sequenceTools.querySelector<HTMLButtonElement>(
+      "[data-output-fullscreen]",
+    );
+    if (!button) return;
+    const active =
+      this.element.ownerDocument.fullscreenElement === this.viewport;
+    const label = active ? "Exit output fullscreen" : "Fullscreen output";
+    const replacement = this.button(
+      label,
+      active ? "exitFullscreen" : "fullscreen",
+      () => {},
+    );
+    button.replaceChildren(...replacement.childNodes);
+    button.setAttribute("aria-label", label);
+    button.removeAttribute("title");
+  }
+  private updatePlaybackButton(
+    button: HTMLButtonElement,
+    playing: boolean,
+    kind: string,
+  ) {
+    const label = `${playing ? "Pause" : "Play"} ${kind}`;
+    if (button.getAttribute("aria-label") === label) return;
+    const replacement = this.button(
+      label,
+      playing ? "pause" : "resume",
+      () => {},
+    );
+    button.replaceChildren(...replacement.childNodes);
+    button.setAttribute("aria-label", label);
+    button.removeAttribute("title");
+    this.revealFullscreenControls();
+    const tooltipId = button.getAttribute("aria-describedby");
+    if (tooltipId) {
+      const tooltip = button.ownerDocument.getElementById(tooltipId);
+      if (tooltip) tooltip.textContent = label;
+    }
+  }
   private refreshResults() {
     this.displayResult();
   }
   private displayResult() {
+    this.stopSequence();
     this.video.pause();
     this.video.removeAttribute("src");
     this.video.load();
@@ -763,8 +1019,8 @@ export class RenderPanel {
     this.deleteButton.disabled =
       !artifact || this.options.session.busy || this.operation;
     this.video.hidden = !artifact?.type.startsWith("video/");
-    this.setVideoTools(!this.video.hidden);
-    this.image.hidden = !artifact?.type.startsWith("image/");
+    this.image.hidden =
+      !artifact?.sequence && !artifact?.type.startsWith("image/");
     this.updateZoom();
     if (!artifact) {
       this.canvas
@@ -773,8 +1029,108 @@ export class RenderPanel {
       this.image.removeAttribute("src");
       return;
     }
-    if (artifact.type.startsWith("video/")) this.video.src = artifact.url;
-    else {
+    if (artifact.sequence) {
+      const { urls, fps } = artifact.sequence;
+      const doc = this.element.ownerDocument;
+      const play = this.button("Play sequence", "resume", () => {
+        if (this.sequenceTimer !== undefined) {
+          doc.defaultView!.clearInterval(this.sequenceTimer);
+          this.sequenceTimer = undefined;
+          this.updatePlaybackButton(play, false, "sequence");
+        } else {
+          this.updatePlaybackButton(play, true, "sequence");
+          this.sequenceTimer = doc.defaultView!.setInterval(() => {
+            scrub.value = String((Number(scrub.value) + 1) % urls.length);
+            show();
+          }, 1000 / fps);
+        }
+      });
+      const scrub = doc.createElement("input");
+      scrub.type = "range";
+      scrub.min = "0";
+      scrub.max = String(urls.length - 1);
+      scrub.step = "1";
+      scrub.value = "0";
+      scrub.setAttribute("aria-label", "Sequence frame");
+      const count = doc.createElement("output");
+      const show = () => {
+        this.image.src = urls[Number(scrub.value)];
+        scrub.style.setProperty(
+          "--trs-playback-progress",
+          `${urls.length <= 1 ? 100 : (Number(scrub.value) / (urls.length - 1)) * 100}%`,
+        );
+        count.textContent = `${Number(scrub.value) + 1} / ${urls.length}`;
+      };
+      scrub.oninput = show;
+      this.image.onload = () => {
+        if (this.fitting) this.fit();
+      };
+      this.sequenceTools.append(play, scrub, count, this.fullscreenButton());
+      this.syncFullscreenButton();
+      this.sequenceTools.hidden = false;
+      show();
+    } else if (artifact.type.startsWith("video/")) {
+      this.video.src = artifact.url;
+      const play = this.button("Play video", "resume", () => {
+        if (this.video.paused)
+          void this.video.play().catch((error) => {
+            this.status.textContent = String(error);
+          });
+        else this.video.pause();
+      });
+      const scrub = this.element.ownerDocument.createElement("input");
+      scrub.type = "range";
+      scrub.min = "0";
+      scrub.max = "0";
+      scrub.step = "any";
+      scrub.value = "0";
+      scrub.setAttribute("aria-label", "Video playback position");
+      scrub.oninput = () => {
+        this.video.currentTime = Number(scrub.value);
+      };
+      const time = this.element.ownerDocument.createElement("output");
+      const sync = () => {
+        const duration = Number.isFinite(this.video.duration)
+          ? this.video.duration
+          : 0;
+        scrub.max = String(duration);
+        const position = this.video.ended
+          ? duration
+          : Math.min(this.video.currentTime, duration);
+        scrub.value = String(position);
+        scrub.style.setProperty(
+          "--trs-playback-progress",
+          `${duration > 0 ? (position / duration) * 100 : 0}%`,
+        );
+        this.updatePlaybackButton(
+          play,
+          !this.video.paused && !this.video.ended,
+          "video",
+        );
+        time.textContent = `${position.toFixed(1)} / ${duration.toFixed(1)}s`;
+      };
+      const win = this.element.ownerDocument.defaultView!;
+      const tick = () => {
+        this.playbackAnimationFrame = undefined;
+        sync();
+        if (!this.video.paused && !this.video.ended)
+          this.playbackAnimationFrame = win.requestAnimationFrame(tick);
+      };
+      const refresh = () => {
+        if (this.playbackAnimationFrame !== undefined)
+          win.cancelAnimationFrame(this.playbackAnimationFrame);
+        tick();
+      };
+      this.video.ontimeupdate =
+        this.video.onseeked =
+        this.video.ondurationchange =
+          sync;
+      this.video.onplay = this.video.onpause = this.video.onended = refresh;
+      this.sequenceTools.append(play, scrub, time, this.fullscreenButton());
+      this.syncFullscreenButton();
+      this.sequenceTools.hidden = false;
+      sync();
+    } else {
       this.image.onload = () => this.fit();
       this.image.src = artifact.url;
     }
@@ -832,14 +1188,8 @@ export class RenderPanel {
       }
     }
   }
-  private setVideoTools(video: boolean) {
-    const tools =
-      this.previewElement.querySelector<HTMLElement>(".trs-preview-tools")!;
-    for (const button of tools.querySelectorAll("button"))
-      button.disabled = video;
-  }
   showFrame(frame: CapturedFrame, index?: number) {
-    this.setVideoTools(false);
+    this.stopSequence();
     this.video.pause();
     this.video.hidden = true;
     this.image.hidden = true;
@@ -890,37 +1240,34 @@ export class RenderPanel {
   fit() {
     this.fitting = true;
     this.offset = { x: 0, y: 0 };
+    const fullscreen =
+      this.element.ownerDocument.fullscreenElement === this.viewport;
     this.scale = Math.max(
       0.001,
       Math.min(
-        (this.viewport.clientWidth - 32) /
+        (this.viewport.clientWidth - (fullscreen ? 0 : 32)) /
           (!this.outputFrame.hidden
             ? parseFloat(this.outputFrame.style.width)
-            : !this.image.hidden
-              ? this.image.naturalWidth || this.canvas.width
-              : this.canvas.width),
-        (this.viewport.clientHeight - 32) /
+            : !this.video.hidden
+              ? this.video.videoWidth || this.canvas.width
+              : !this.image.hidden
+                ? this.image.naturalWidth || this.canvas.width
+                : this.canvas.width),
+        (this.viewport.clientHeight -
+          (fullscreen ? 0 : 32 + (this.sequenceTools.hidden ? 0 : 52))) /
           (!this.outputFrame.hidden
             ? parseFloat(this.outputFrame.style.height)
-            : !this.image.hidden
-              ? this.image.naturalHeight || this.canvas.height
-              : this.canvas.height),
+            : !this.video.hidden
+              ? this.video.videoHeight || this.canvas.height
+              : !this.image.hidden
+                ? this.image.naturalHeight || this.canvas.height
+                : this.canvas.height),
       ),
     );
     this.transform();
   }
   private updateZoom() {
-    let scale = this.scale;
-    if (!this.video.hidden) {
-      if (!this.video.videoWidth || !this.video.videoHeight) {
-        this.zoomOutput.value = "—";
-        return;
-      }
-      scale = Math.min(
-        this.viewport.clientWidth / this.video.videoWidth,
-        this.viewport.clientHeight / this.video.videoHeight,
-      );
-    }
+    const scale = this.scale;
     const percent =
       scale *
       (this.element.ownerDocument.defaultView?.devicePixelRatio ?? 1) *
@@ -929,10 +1276,20 @@ export class RenderPanel {
   }
   private transform() {
     this.updateZoom();
-    this.outputFrame.style.transform =
+    this.video.style.transform =
+      this.outputFrame.style.transform =
       this.image.style.transform =
       this.canvas.style.transform =
         `translate(calc(-50% + ${this.offset.x}px), calc(-50% + ${this.offset.y}px)) scale(${this.scale})`;
+    const width = !this.video.hidden
+      ? this.video.videoWidth
+      : this.image.naturalWidth;
+    const height = !this.video.hidden
+      ? this.video.videoHeight
+      : this.image.naturalHeight;
+    this.sequenceTools.style.width = `${Math.max(200, width * this.scale)}px`;
+    this.sequenceTools.style.left = `calc(50% + ${this.offset.x}px)`;
+    this.sequenceTools.style.top = `calc(50% + ${this.offset.y + (height * this.scale) / 2 + 6}px)`;
   }
   private zoom(factor: number, x = 0, y = 0) {
     const next = Math.min(16, Math.max(0.01, this.scale * factor)),
@@ -947,11 +1304,72 @@ export class RenderPanel {
   }
   private setupNavigation() {
     const signal = this.controller.signal;
+    for (const event of ["pointermove", "pointerdown", "keydown", "focusin"])
+      this.viewport.addEventListener(
+        event,
+        () => this.revealFullscreenControls(),
+        { signal },
+      );
+    this.sequenceTools.addEventListener(
+      "pointerleave",
+      () => this.revealFullscreenControls(),
+      { signal },
+    );
+    let hovering = false;
+    this.viewport.addEventListener(
+      "pointerenter",
+      () => {
+        hovering = true;
+      },
+      { signal },
+    );
+    this.viewport.addEventListener(
+      "pointerleave",
+      () => {
+        hovering = false;
+      },
+      { signal },
+    );
+    this.element.ownerDocument.addEventListener(
+      "keydown",
+      (event) => {
+        if (
+          event.code !== "Space" ||
+          !hovering ||
+          this.sequenceTools.hidden ||
+          event.altKey ||
+          event.ctrlKey ||
+          event.metaKey
+        )
+          return;
+        const target = event.target as HTMLElement | null;
+        if (
+          target?.closest(
+            "input, textarea, select, [contenteditable]:not([contenteditable=false])",
+          )
+        )
+          return;
+        const play =
+          this.sequenceTools.querySelector<HTMLButtonElement>("button");
+        if (!play || play.disabled) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (!event.repeat) play.click();
+      },
+      { signal, capture: true },
+    );
+    this.viewport.addEventListener(
+      "dragstart",
+      (event) => event.preventDefault(),
+      { signal },
+    );
     let drag: { x: number; y: number } | undefined;
     this.viewport.addEventListener(
       "wheel",
       (event) => {
         event.preventDefault();
+        if (this.element.ownerDocument.fullscreenElement === this.viewport)
+          return;
         const bounds = this.viewport.getBoundingClientRect();
         this.zoom(
           Math.exp(-event.deltaY * 0.002),
@@ -964,7 +1382,16 @@ export class RenderPanel {
     this.viewport.addEventListener(
       "pointerdown",
       (event) => {
-        if (event.button !== 0 || event.target === this.video) return;
+        if (event.button !== 0 || !event.isPrimary) return;
+        if (this.element.ownerDocument.fullscreenElement === this.viewport) {
+          this.viewport.focus();
+          this.sequenceTools
+            .querySelector<HTMLButtonElement>("button")
+            ?.click();
+          return;
+        }
+        event.preventDefault();
+        this.viewport.style.cursor = "grabbing";
         drag = { x: event.clientX, y: event.clientY };
         this.viewport.setPointerCapture(event.pointerId);
         this.viewport.focus();
@@ -988,12 +1415,15 @@ export class RenderPanel {
         event,
         () => {
           drag = undefined;
+          this.viewport.style.cursor = "";
         },
         { signal },
       );
     this.viewport.addEventListener(
       "keydown",
       (event) => {
+        if (this.element.ownerDocument.fullscreenElement === this.viewport)
+          return;
         if (
           [
             "+",
@@ -1097,11 +1527,13 @@ export class RenderPanel {
         element.style.setProperty(`--trs-${name}`, theme[name]!);
   }
   dispose() {
+    this.clearFullscreenTimer();
+    this.stopSequence();
     this.controller.abort();
     this.video.pause();
     this.video.removeAttribute("src");
     this.video.load();
-    for (const artifact of this.artifacts) URL.revokeObjectURL(artifact.url);
+    for (const artifact of this.artifacts) this.releaseArtifact(artifact);
     this.artifacts = [];
     this.observer.disconnect();
     for (const cleanup of this.cleanup) cleanup();

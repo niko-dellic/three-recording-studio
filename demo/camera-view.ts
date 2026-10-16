@@ -15,10 +15,22 @@ export class CameraViewSettings {
   ) {
     this.element.className = "destination camera-settings";
     this.element.innerHTML = `<label class="studio-outlined-field"><span>Render camera</span><select aria-label="Render camera"></select></label>
-      <label><input type="checkbox" data-frame checked> Render frame</label>
-      <label><input type="checkbox" data-safe checked> Safe areas (90% / 80%)</label>
+      <div class="camera-overlay-toggles" role="group" aria-label="Camera overlays">
+        <button type="button" data-frame aria-pressed="true"><svg class="selection-check" aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Render frame</button>
+        <button type="button" data-safe aria-pressed="true"><svg class="selection-check" aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Safe areas (90% / 80%)</button>
+      </div>
       <label class="studio-outlined-field"><span>Composition guides</span><select data-guides aria-label="Composition guides"><option value="none">None</option><option value="thirds">Rule of thirds</option><option value="center">Center</option><option value="diagonals">Diagonals</option><option value="golden">Golden ratio</option></select></label>
       <label>Outside frame tint<input data-tint aria-label="Outside frame tint" type="range" min="0" max="1" step="0.05" value="0.7"></label>`;
+    this.element
+      .querySelectorAll<HTMLButtonElement>(".camera-overlay-toggles button")
+      .forEach((button) => {
+        button.addEventListener("click", () => {
+          button.setAttribute(
+            "aria-pressed",
+            String(button.getAttribute("aria-pressed") !== "true"),
+          );
+        });
+      });
     this.viewportToolbar.className = "viewport-toolbar";
     this.viewportToolbar.innerHTML = `<label class="studio-outlined-field"><select id="backend" aria-label="Renderer"><option value="webgl">WebGL</option><option value="webgpu">WebGPU</option></select></label>`;
     setupTooltips(this.viewportToolbar, "select");
@@ -39,7 +51,9 @@ export class CameraViewSettings {
   }
   setDisabled(disabled: boolean) {
     this.element
-      .querySelectorAll<HTMLInputElement>("input,select")
+      .querySelectorAll<
+        HTMLInputElement | HTMLSelectElement | HTMLButtonElement
+      >("input,select,button")
       .forEach((input) => (input.disabled = disabled));
   }
   refresh() {
@@ -84,9 +98,11 @@ export class CameraViewSettings {
     Object.assign(frame.style, {
       width: `${frameWidth}px`,
       height: `${frameHeight}px`,
-      borderColor: this.input<HTMLInputElement>("frame").checked
-        ? "#fff9"
-        : "transparent",
+      borderColor:
+        this.input<HTMLButtonElement>("frame").getAttribute("aria-pressed") ===
+        "true"
+          ? "#fff9"
+          : "transparent",
       boxShadow: `0 0 0 10000px rgb(0 0 0 / ${this.input<HTMLInputElement>("tint").value})`,
     });
     const guides = this.input<HTMLSelectElement>("guides").value;
@@ -105,7 +121,10 @@ export class CameraViewSettings {
     const composition = frame.querySelector(".composition")!;
     if (composition.innerHTML !== markup) composition.innerHTML = markup;
     (frame.querySelector(".safe-areas") as SVGElement).style.display =
-      this.input<HTMLInputElement>("safe").checked ? "" : "none";
+      this.input<HTMLButtonElement>("safe").getAttribute("aria-pressed") ===
+      "true"
+        ? ""
+        : "none";
     // Expand the fitted projection to include space outside the render frame.
     // Scaling the entire clip-space X/Y rows also preserves off-axis projections.
     const view = fitted.clone();

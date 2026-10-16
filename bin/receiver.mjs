@@ -65,6 +65,18 @@ function normalize(job) {
   )
     throw Error("Invalid frame range or FPS");
   if (
+    job.sampleIntervalSeconds !== undefined &&
+    (!Number.isFinite(job.sampleIntervalSeconds) ||
+      job.sampleIntervalSeconds <= 0)
+  )
+    throw new Error(
+      "Sample interval must be a positive finite number of seconds",
+    );
+  if (
+    !Number.isFinite(job.endFrame * (job.sampleIntervalSeconds ?? 1 / job.fps))
+  )
+    throw new Error("Scene time must be finite");
+  if (
     job.cameraFit &&
     !["auto", "horizontal", "vertical"].includes(job.cameraFit)
   )
@@ -76,6 +88,9 @@ function normalize(job) {
     width: job.width,
     height: job.height,
     fps: job.fps,
+    ...(job.sampleIntervalSeconds === undefined
+      ? {}
+      : { sampleIntervalSeconds: job.sampleIntervalSeconds }),
     startFrame: job.startFrame,
     endFrame: job.endFrame,
     cameraFit: job.cameraFit ?? "auto",
@@ -101,7 +116,7 @@ export async function createReceiver({
     verifyClient: ({ origin }) => origins.includes(origin),
   });
   server.on("connection", (socket) => {
-    let manifest, folder, jobId;
+    let manifest, folder, jobId, pendingFile;
     let chain = Promise.resolve();
     let closing = false;
     const timeout = setTimeout(
@@ -118,6 +133,36 @@ export async function createReceiver({
           if (binary) {
             if (!manifest) throw Error("Authenticate first");
             const bytes = Buffer.from(data);
+            if (pendingFile !== undefined) {
+              if (
+                bytes.length !== pendingFile ||
+                bytes.length < 12 ||
+                bytes.toString("ascii", 4, 8) !== "ftyp"
+              )
+                throw Error("Invalid MP4 file");
+              const filename = `${manifest.job.fileName ?? manifest.job.id}.mp4`;
+              if (
+                (
+                  await lstat(join(folder, filename)).catch(() => null)
+                )?.isSymbolicLink()
+              )
+                throw Error("Symlink output refused");
+              await atomic(join(folder, filename), bytes);
+              manifest.file = {
+                file: filename,
+                size: bytes.length,
+                sha256: digest(bytes),
+              };
+              await atomic(
+                join(folder, "manifest.json"),
+                JSON.stringify(manifest, null, 2),
+              );
+              pendingFile = undefined;
+              send({ type: "file-saved" });
+              return;
+            }
+            if (manifest.file)
+              throw Error("Cannot mix MP4 output and PNG frames");
             if (bytes.length < 28) throw Error("Invalid PNG frame");
             const frame = bytes.readUInt32LE(0),
               png = bytes.subarray(4),
@@ -204,9 +249,24 @@ export async function createReceiver({
             await atomic(manifestPath, JSON.stringify(manifest, null, 2));
             clearTimeout(timeout);
             send({ type: "opened", saved });
+          } else if (message.type === "file" && manifest) {
+            if (
+              pendingFile !== undefined ||
+              !Number.isSafeInteger(message.size) ||
+              message.size < 12 ||
+              message.size > 256 * 1024 * 1024
+            )
+              throw Error("Invalid MP4 size");
+            if (Object.keys(manifest.frames).length)
+              throw Error("Cannot mix PNG frames and MP4 output");
+            pendingFile = message.size;
+            send({ type: "file-ready" });
           } else if (message.type === "finish" && manifest) {
             const count = manifest.job.endFrame - manifest.job.startFrame + 1;
-            if (Object.keys(manifest.frames).length !== count)
+            if (
+              pendingFile !== undefined ||
+              (!manifest.file && Object.keys(manifest.frames).length !== count)
+            )
               throw Error("Job has missing frames");
             manifest.complete = true;
             await atomic(
