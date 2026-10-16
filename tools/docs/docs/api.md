@@ -104,3 +104,16 @@ an orbit track in Theatre. Scrubbing or playback applies its keyframes; navigati
 while paused remains in place until time changes. Quilt Three camera helpers show
 the recording camera from the secondary view. Guides, tint, and the camera helper are
 viewport aids and are not included in exported images or videos.
+
+## Output destinations and retained results
+
+- `MemorySequenceDestination({onComplete, maxBytes?})`: retains encoded PNGs, then calls `onComplete(sequence)` with `{frames, archive, job}`. Each frame contains `{blob, filename, frame}`; `archive` is a ZIP Blob. The default encoded-output ceiling is 128 MiB including ZIP headers, with at most 65,535 frames. Exceeding the limit fails the export and releases its buffers.
+- `DirectoryDestination(directoryHandle)`: writes PNGs and a progress manifest into a fresh run folder. Obtain the writable handle with `showDirectoryPicker({mode: "readwrite"})` from a user gesture.
+- `saveFileToDirectory(directoryHandle, job, blob, signal)`: saves a finalized MP4 into a fresh run folder. Await it before reporting success.
+- `WebSocketDestination({url, token, timeoutMs?})`: implements `RenderDestination` for resumable PNG sequences. `saveMp4(job, blob, signal)` authenticates, uploads a finalized MP4 (up to 256 MiB), waits for persistence acknowledgement, and disconnects. MP4 uploads are not resumable.
+
+`RenderJob.fileName?` sets the output filename prefix separately from the internal job ID. It accepts 1–80 letters, digits, underscores, or hyphens. The panel generates a fresh job ID for each render.
+
+`RenderPanel.addSequenceResult(sequence, channel?)` retains a PNG sequence with playback, scrubbing, and ZIP download. `addResult(blob, filename, channel?)` retains a PNG or MP4. Both replace the selected channel's previous result and release its object URLs. Deleting a result or disposing the panel releases its URLs and playback timers.
+
+`RenderPanelOptions.maxRetainedBytes` limits total retained output across channels (default 256 MiB). PNG frames and the sequence ZIP both count toward it. A result exceeding the limit is rejected while the previous result remains. Encoding and temporary copies add memory beyond this retained-output limit. `renderIcon(key, document)` optionally supplies icon elements; `setTransparencySupported(boolean)` lets an application disable transparency when selecting an opaque format such as MP4.

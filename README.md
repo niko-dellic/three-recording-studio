@@ -4,9 +4,11 @@
 
 A render workspace for existing Three.js scenes: exact frame timing, independent output framing, a themed preview panel, image sequences with recovery, and browser MP4 export.
 
-![Three Recording Studio demo](docs/media/studio.png)
+![Three Recording Studio demo](https://three-recording-studio.vercel.app/studio.png)
 
-**Pre-release.** The repository is runnable; the package is not yet published to npm.
+**0.1.0 release candidate.** Publication is pending. Install the archive from `npm pack` until the registry release is available.
+
+[Demo](https://three-recording-studio.vercel.app/demo/) · [Guide](https://three-recording-studio.vercel.app/guide) · [API](https://three-recording-studio.vercel.app/api)
 
 ```sh
 npm ci
@@ -14,25 +16,30 @@ npm run build
 npm run dev
 ```
 
-Open http://127.0.0.1:5190. Select Demo to open `/demo`. The demo uses Quilt panes and a Theatre.js keyframed scene. Switch between WebGL and WebGPU in the header. The render panel and library itself do not require either framework.
+Open http://127.0.0.1:5190. Select Demo to open `/demo`. The demo uses Quilt panes and a Theatre.js keyframed scene. Switch between WebGL and WebGPU in the left viewport. The render panel and library itself do not require either framework.
 
 ```sh
 npm run receiver -- --directory ./recordings
 ```
 
-Select PNG sequence in the demo and paste the receiver token. Interrupted jobs can resume when the scene identity and settings match. For MP4, select browser download; Mediabunny handles encoding.
+Both PNG sequences and MP4 support Memory, Folder, and Receiver destinations. Memory PNG sequences provide playback, scrubbing, and ZIP download. MP4 files are saved after encoding completes; folder/receiver PNG frames are saved as they render. Downloads are explicit.
+
+Select Receiver and paste the terminal token to use the companion. Interrupted PNG jobs can resume when the scene identity and settings match. Memory sequences are limited to 128 MiB; MP4 output and total retained channel results each have a 256 MiB default limit. These are output limits, not total browser-memory quotas.
 
 ## Architecture
 
 - `RenderSession`: exclusive lifecycle and frame scheduling.
 - `WebGLCaptureAdapter` / `WebGPUCaptureAdapter`: offscreen targets and awaited readback.
 - `RenderPanel`: DOM/CSS UI, fixed functional layout, theme tokens, floating or embedded views.
-- `WebSocketDestination`: acknowledged, resumable PNG saving.
+- `MemorySequenceDestination`: bounded PNG playback and ZIP output.
+- `DirectoryDestination`: PNG sequences written to a chosen browser folder.
+- `WebSocketDestination`: acknowledged, resumable PNG saving and finalized MP4 uploads.
+- `saveFileToDirectory`: saves finalized MP4 output into a fresh run folder.
 - `Mp4Destination`: browser H.264 export with an output-memory ceiling.
 
 Applications provide animation acquisition, timestamp evaluation, readiness and restoration hooks. Passing a clock alone cannot ensure correct export. Source scenes must be seekable for durable resume. Postprocessing uses an explicit integration hook.
 
-See [the guide](tools/docs/docs/guide.md), [API](tools/docs/docs/api.md), [rendering contract](tools/docs/docs/rendering.md), and [saving](tools/docs/docs/saving.md). Run `npm run docs:dev` for the styled documentation.
+See [the guide](https://three-recording-studio.vercel.app/guide), [API](https://three-recording-studio.vercel.app/api), [rendering contract](https://three-recording-studio.vercel.app/rendering), and [saving](https://three-recording-studio.vercel.app/saving). Run `npm run docs:dev` for the styled documentation.
 
 ## Development
 
@@ -56,4 +63,4 @@ MIT license. Mediabunny retains its MPL-2.0 license. Three.js, Quilt and Theatre
 
 `npm run test:packed` installs the package archive into a temporary clean consumer and verifies core/UI imports without optional encoding dependencies or demo frameworks.
 
-See [validation results](VALIDATION.md) for tested behavior and release boundaries.
+See [validation results](https://github.com/niko-dellic/three-recording-studio/blob/main/VALIDATION.md) for tested behavior and release boundaries.

@@ -5,7 +5,7 @@ Three Recording Studio adds an export workflow to an existing Three.js scene. It
 The initial release supports Three.js 0.186.x, WebGLRenderer and native WebGPURenderer. The package is ESM with TypeScript declarations. The UI is optional. React, Quilt and Theatre are not required by the library.
 
 ```sh
-npm install three-recording-studio three
+npm install three-recording-studio three@~0.186.1
 ```
 
 Until publication, install the archive produced by `npm pack` instead of the registry name.
@@ -78,3 +78,43 @@ npm run dev
 ```
 
 The demo runs on `http://127.0.0.1:5190/demo`. Start the receiver in another terminal with `npm run receiver`. Paste its token into the demo's PNG sequence settings. The introduction is at `http://127.0.0.1:5190/`.
+
+## Add the optional render panel
+
+Reuse the `session` from the example above. Your page needs an empty element such as `<div id="render-panel"></div>`; give it a usable height in your application's layout.
+
+```ts
+import { MemorySequenceDestination } from "three-recording-studio";
+import { RenderPanel } from "three-recording-studio/ui";
+import "three-recording-studio/ui/style.css";
+
+const panel: RenderPanel = new RenderPanel({
+  container: document.querySelector<HTMLElement>("#render-panel")!,
+  session,
+  mode: "embedded",
+  job: {
+    id: "turntable",
+    contentId: "scene-and-assets-v1",
+    width: 1280,
+    height: 720,
+    fps: 30,
+    startFrame: 0,
+    endFrame: 179,
+    transparent: true,
+  },
+  destination: () => {
+    const channel = panel.channel;
+    return new MemorySequenceDestination({
+      onComplete: (sequence) => panel.addSequenceResult(sequence, channel),
+    });
+  },
+});
+
+// When removing your integration:
+// panel.dispose();
+// await session.dispose();
+```
+
+This example renders PNG sequences into memory with channel playback and ZIP download. `Render image` captures the current frame as a PNG. To preview MP4 instead, set `transparent: false` and return `new Mp4Destination({onComplete: blob => panel.addResult(blob, "turntable.mp4", channel)})` from the destination callback. Capture `channel` before the asynchronous render starts, as above.
+
+The panel does not own your renderer or scene. Dispose the session and your application resources separately. For folder and receiver destinations, see [Saving and recovery](/saving).

@@ -3,7 +3,7 @@ for (const backend of ["webgl", "webgpu"] as const) {
   test(`${backend}: exact image orientation, colors, alpha and renderer restoration`, async ({
     page,
   }) => {
-    await page.goto(`/?backend=${backend}`);
+    await page.goto(`/demo/?backend=${backend}`);
     await page.waitForFunction(() => !!(window as any).trsDemo);
     for (const transparent of [false, true]) {
       const result = await page.evaluate(
@@ -33,7 +33,7 @@ for (const backend of ["webgl", "webgpu"] as const) {
   test(`${backend}: 4K panoramic render, slow destination, frame order and scene recovery`, async ({
     page,
   }) => {
-    await page.goto(`/?backend=${backend}`);
+    await page.goto(`/demo/?backend=${backend}`);
     await page.waitForFunction(() => !!(window as any).trsDemo);
     const result = await page.evaluate(async () => {
       const demo = (window as any).trsDemo;
@@ -87,7 +87,7 @@ for (const backend of ["webgl", "webgpu"] as const) {
 test("MP4 contains all frames at the requested timestamps and dimensions", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/demo/");
   const result = await page.evaluate(async () => {
     const module = await import(
       /* @vite-ignore */ String("/demo/test-harness.ts")
@@ -104,12 +104,12 @@ test("MP4 contains all frames at the requested timestamps and dimensions", async
 test("panel theme and preview navigation leave camera unchanged", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/demo/");
   await page.waitForFunction(() => !!(window as any).trsDemo);
   const before = await page.evaluate(() =>
     (window as any).trsDemo.camera.toJSON(),
   );
-  await page.getByRole("button", { name: "Light theme", exact: true }).click();
+  await page.getByRole("switch", { name: "Dark mode", exact: true }).click();
   await expect(page.locator("body")).toHaveClass(/light/);
   await page.getByRole("button", { name: "100%", exact: true }).click();
   const zoom = page.locator(".trs-zoom");
@@ -161,7 +161,7 @@ test("browser PNG saving survives interruption and resumes verified frames", asy
     token: "browser-test-token",
   });
   try {
-    await page.goto("/");
+    await page.goto("/demo/");
     await page.waitForFunction(() => !!(window as any).trsDemo);
     const result = await page.evaluate(async (port) => {
       const { WebSocketDestination } = await import(
@@ -227,7 +227,7 @@ test("demo recovery identity is stable across exports and page reloads", async (
       return job.contentId;
     });
   }
-  await page.goto("/");
+  await page.goto("/demo/");
   await page.waitForFunction(() => !!(window as any).trsDemo);
   const first = await identity();
   expect(await identity()).toBe(first);
@@ -239,7 +239,7 @@ test("demo recovery identity is stable across exports and page reloads", async (
 test("MP4 memory-limit failures propagate and restore application state", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/demo/");
   const result = await page.evaluate(async () => {
     const module = await import(String("/demo/test-harness.ts"));
     return module.verifyMp4Limit();
@@ -251,7 +251,7 @@ test("MP4 memory-limit failures propagate and restore application state", async 
 test("demo UI exports a rendered MP4 and restores the Theatre playhead", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/demo/");
   await page.waitForFunction(() => !!(window as any).trsDemo);
   await page.locator("#scrub").evaluate((element) => {
     (element as HTMLInputElement).value = "2";
@@ -305,7 +305,7 @@ for (const backend of ["webgl", "webgpu"]) {
   test(`${backend}: clipping removes bunny pixels at the animated cut height`, async ({
     page,
   }) => {
-    await page.goto(`/?backend=${backend}`);
+    await page.goto(`/demo/?backend=${backend}`);
     await page.waitForFunction(() => !!(window as any).trsDemo);
     const counts = await page.evaluate(async () => {
       const demo = (window as any).trsDemo;
@@ -349,7 +349,7 @@ for (const backend of ["webgl", "webgpu"]) {
 test("compact header, fullscreen, and responsive icon transport", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/demo/");
   await page.waitForFunction(() => !!(window as any).trsDemo);
   await expect(page.locator(".intro")).toHaveCount(0);
   const scrubber = page.locator(".timeline-scrubber");
@@ -384,7 +384,7 @@ test("compact header, fullscreen, and responsive icon transport", async ({
 test("still renders replace their channel and preserve other channels without automatic downloads", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/demo/");
   await page.waitForFunction(() => !!(window as any).trsDemo);
   let downloads = 0;
   page.on("download", () => downloads++);
@@ -453,7 +453,7 @@ test("PNG folder selection writes sequences and stills into separate directories
       return folder;
     };
   });
-  await page.goto("/");
+  await page.goto("/demo/");
   await page.waitForFunction(() => !!(window as any).trsDemo);
   await page.locator("#format").selectOption("frames");
   await page.locator("#save-target").selectOption("folder");
@@ -523,7 +523,7 @@ test("Memory and receiver remain available when folder picker is unsupported", a
   await page.addInitScript(() => {
     Object.defineProperty(window, "showDirectoryPicker", { value: undefined });
   });
-  await page.goto("/");
+  await page.goto("/demo/");
   await page.waitForFunction(() => !!(window as any).trsDemo);
   await page.locator("#format").selectOption("frames");
   await expect(page.locator("#save-target")).toHaveValue("memory");
@@ -646,11 +646,23 @@ test("play and pause respond to a click held across animation frames", async ({
   );
 });
 
-test("Quilt popout returns preview state and default shortcuts work", async ({
+test("customizable Quilt layout preserves popout state and default shortcuts", async ({
   page,
 }) => {
   await page.goto("/demo/");
   await page.waitForFunction(() => !!(window as any).trsDemo);
+  // The demo dedicates panes (no tab headers). Exercise the supported custom
+  // arrangement with tab headers enabled before testing their menu/shortcuts.
+  await page.evaluate(() => {
+    const workspace = (window as any).trsDemo.workspace;
+    const layout = workspace.exportLayout();
+    const visit = (node: any) => {
+      if (node.kind === "group") delete node.dedicatedPaneId;
+      else node.children.forEach(visit);
+    };
+    visit(layout.root);
+    workspace.loadLayout(layout);
+  });
   await page.getByRole("button", { name: "100%", exact: true }).click();
   await page
     .getByRole("tab", { name: /Render preview/ })
@@ -686,8 +698,8 @@ test("Quilt popout returns preview state and default shortcuts work", async ({
     .toBe(null);
   await tab.click({ button: "middle" });
   await expect(tab).toHaveCount(0);
-  await page.getByRole("tab", { name: /Scene viewport/ }).hover();
-  await page.getByRole("tab", { name: /Scene viewport/ }).focus();
+  await page.getByRole("tab", { name: /Secondary camera/ }).hover();
+  await page.getByRole("tab", { name: /Secondary camera/ }).focus();
   await page.keyboard.press("r");
   await expect(tab).toBeVisible();
   await tab.hover();
@@ -1039,7 +1051,7 @@ test("all save targets remain available across formats", async ({ page }) => {
 test("sidebar timelapse maps scene sampling separately from output FPS", async ({
   page,
 }) => {
-  await page.goto("/?backend=webgl");
+  await page.goto("/demo/?backend=webgl");
   await page.waitForFunction(() => !!(window as any).trsDemo);
   const interval = page.getByLabel("Capture interval (scene seconds)");
   await expect(interval).toBeHidden();
@@ -1189,57 +1201,127 @@ test("MP4 receiver output persists a completed movie", async ({ page }) => {
   }
 });
 
-test("saved images and videos pan directly over their content", async ({ page }) => {
-  await page.goto("/");
+test("saved images and videos pan directly over their content", async ({
+  page,
+}) => {
+  await page.goto("/demo/");
   await page.waitForFunction(() => !!(window as any).trsDemo);
-  for (const [name, value] of [["width", "320"], ["height", "180"], ["endFrame", "5"]])
+  for (const [name, value] of [
+    ["width", "320"],
+    ["height", "180"],
+    ["endFrame", "5"],
+  ])
     await page.locator(`.trs-controls [name=${name}]`).fill(value);
-  for (const [action, selector] of [["Render image", "img.trs-image"], ["Render", "video.trs-result-video"]]) {
+  for (const [action, selector] of [
+    ["Render image", "img.trs-image"],
+    ["Render", "video.trs-result-video"],
+  ]) {
     await page.getByRole("button", { name: action, exact: true }).click();
     const media = page.locator(selector);
     await expect(media).toBeVisible();
-    await expect.poll(() => media.evaluate((el) => el instanceof HTMLVideoElement ? el.videoWidth : (el as HTMLImageElement).naturalWidth)).toBe(320);
+    await expect
+      .poll(() =>
+        media.evaluate((el) =>
+          el instanceof HTMLVideoElement
+            ? el.videoWidth
+            : (el as HTMLImageElement).naturalWidth,
+        ),
+      )
+      .toBe(320);
     await page.getByRole("button", { name: "Fit", exact: true }).click();
     const before = await media.boundingBox();
     expect(before).not.toBeNull();
-    await page.mouse.move(before!.x + before!.width / 2, before!.y + before!.height / 2);
+    await page.mouse.move(
+      before!.x + before!.width / 2,
+      before!.y + before!.height / 2,
+    );
     await page.mouse.down();
-    await page.mouse.move(before!.x + before!.width / 2 + 60, before!.y + before!.height / 2 + 35, { steps: 6 });
+    await page.mouse.move(
+      before!.x + before!.width / 2 + 60,
+      before!.y + before!.height / 2 + 35,
+      { steps: 6 },
+    );
     await page.mouse.up();
     const after = await media.boundingBox();
     expect(after!.x - before!.x).toBeCloseTo(60, 0);
     expect(after!.y - before!.y).toBeCloseTo(35, 0);
   }
-  await page.getByRole("button", { name: "Fullscreen output", exact: true }).click();
-  await expect.poll(() => page.evaluate(() => document.fullscreenElement?.classList.contains("trs-viewport"))).toBe(true);
-  await expect(page.getByRole("slider", { name: "Video playback position" })).toBeVisible();
-  await page.locator("video.trs-result-video").evaluate(async (video: HTMLVideoElement) => { video.loop = true; await video.play(); });
+  await page
+    .getByRole("button", { name: "Fullscreen output", exact: true })
+    .click();
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        document.fullscreenElement?.classList.contains("trs-viewport"),
+      ),
+    )
+    .toBe(true);
+  await expect(
+    page.getByRole("slider", { name: "Video playback position" }),
+  ).toBeVisible();
+  await page
+    .locator("video.trs-result-video")
+    .evaluate(async (video: HTMLVideoElement) => {
+      video.loop = true;
+      await video.play();
+    });
   await page.mouse.move(100, 100);
-  await expect(page.locator(".trs-viewport")).toHaveClass(/trs-player-idle/, { timeout: 5000 });
+  await expect(page.locator(".trs-viewport")).toHaveClass(/trs-player-idle/, {
+    timeout: 5000,
+  });
   await page.mouse.move(130, 110);
-  await expect(page.locator(".trs-viewport")).not.toHaveClass(/trs-player-idle/);
-  await page.locator("video.trs-result-video").evaluate((video: HTMLVideoElement) => { video.pause(); video.loop = false; });
-  await page.getByRole("button", { name: "Exit output fullscreen", exact: true }).click();
-  await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true);
+  await expect(page.locator(".trs-viewport")).not.toHaveClass(
+    /trs-player-idle/,
+  );
+  await page
+    .locator("video.trs-result-video")
+    .evaluate((video: HTMLVideoElement) => {
+      video.pause();
+      video.loop = false;
+    });
+  await page
+    .getByRole("button", { name: "Exit output fullscreen", exact: true })
+    .click();
+  await expect
+    .poll(() => page.evaluate(() => document.fullscreenElement === null))
+    .toBe(true);
   await page.getByRole("button", { name: "Play video", exact: true }).click();
-  await expect.poll(() => page.locator("video.trs-result-video").evaluate((video: HTMLVideoElement) => video.currentTime)).toBeGreaterThan(0);
+  await expect
+    .poll(() =>
+      page
+        .locator("video.trs-result-video")
+        .evaluate((video: HTMLVideoElement) => video.currentTime),
+    )
+    .toBeGreaterThan(0);
 });
 
-test("video scrubber updates smoothly, finishes at maximum, and responds to hovered Space", async ({ page }) => {
-  await page.goto("/");
+test("video scrubber updates smoothly, finishes at maximum, and responds to hovered Space", async ({
+  page,
+}) => {
+  await page.goto("/demo/");
   await page.waitForFunction(() => !!(window as any).trsDemo);
-  for (const [name, value] of [["width", "160"], ["height", "90"], ["endFrame", "59"]])
+  for (const [name, value] of [
+    ["width", "160"],
+    ["height", "90"],
+    ["endFrame", "59"],
+  ])
     await page.locator(`.trs-controls [name=${name}]`).fill(value);
   await page.getByRole("button", { name: "Render", exact: true }).click();
   const video = page.locator("video.trs-result-video");
   await expect(video).toBeVisible();
-  await expect.poll(() => video.evaluate((el: HTMLVideoElement) => el.readyState)).toBeGreaterThan(1);
+  await expect
+    .poll(() => video.evaluate((el: HTMLVideoElement) => el.readyState))
+    .toBeGreaterThan(1);
   await page.locator(".trs-viewport").hover({ position: { x: 20, y: 80 } });
   await page.locator(".trs-viewport").focus();
   await page.keyboard.press("Space");
-  await expect.poll(() => video.evaluate((el: HTMLVideoElement) => el.paused)).toBe(false);
+  await expect
+    .poll(() => video.evaluate((el: HTMLVideoElement) => el.paused))
+    .toBe(false);
   const changes = await page.evaluate(async () => {
-    const scrub = document.querySelector<HTMLInputElement>('[aria-label="Video playback position"]')!;
+    const scrub = document.querySelector<HTMLInputElement>(
+      '[aria-label="Video playback position"]',
+    )!;
     const values = new Set<string>();
     const start = performance.now();
     await new Promise<void>((resolve) => {
@@ -1254,14 +1336,40 @@ test("video scrubber updates smoothly, finishes at maximum, and responds to hove
   });
   expect(changes).toBeGreaterThan(5);
   await page.keyboard.press("Space");
-  await expect.poll(() => video.evaluate((el: HTMLVideoElement) => el.paused)).toBe(true);
+  await expect
+    .poll(() => video.evaluate((el: HTMLVideoElement) => el.paused))
+    .toBe(true);
   await page.keyboard.press("Space");
-  await expect.poll(() => video.evaluate((el: HTMLVideoElement) => el.ended)).toBe(true);
+  await expect
+    .poll(() => video.evaluate((el: HTMLVideoElement) => el.ended))
+    .toBe(true);
   const scrub = page.getByRole("slider", { name: "Video playback position" });
-  await expect.poll(() => scrub.evaluate((el: HTMLInputElement) => Number(el.value) === Number(el.max))).toBe(true);
-  await scrub.evaluate((el: HTMLInputElement) => { el.value = "0"; el.dispatchEvent(new Event("input", { bubbles: true })); });
-  await expect.poll(() => video.evaluate((el: HTMLVideoElement) => el.currentTime)).toBe(0);
-  await scrub.evaluate((el: HTMLInputElement) => { el.value = el.max; el.dispatchEvent(new Event("input", { bubbles: true })); });
-  await expect.poll(() => scrub.evaluate((el: HTMLInputElement) => Number(el.value) === Number(el.max))).toBe(true);
-  await expect(page.getByRole("button", { name: "Play video", exact: true })).toBeVisible();
+  await expect
+    .poll(() =>
+      scrub.evaluate(
+        (el: HTMLInputElement) => Number(el.value) === Number(el.max),
+      ),
+    )
+    .toBe(true);
+  await scrub.evaluate((el: HTMLInputElement) => {
+    el.value = "0";
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await expect
+    .poll(() => video.evaluate((el: HTMLVideoElement) => el.currentTime))
+    .toBe(0);
+  await scrub.evaluate((el: HTMLInputElement) => {
+    el.value = el.max;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await expect
+    .poll(() =>
+      scrub.evaluate(
+        (el: HTMLInputElement) => Number(el.value) === Number(el.max),
+      ),
+    )
+    .toBe(true);
+  await expect(
+    page.getByRole("button", { name: "Play video", exact: true }),
+  ).toBeVisible();
 });

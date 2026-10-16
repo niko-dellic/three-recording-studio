@@ -111,7 +111,7 @@ try {
   await page.waitForURL(/\/demo\/?$/);
   await page.waitForFunction(() => !!window.trsDemo);
   await page.screenshot({ path: "../../work/demo-built.png" });
-  await page.getByRole("link", { name: /Documentation/ }).click();
+  await page.getByRole("link", { name: "Guide", exact: true }).click();
   await page.waitForURL("**/guide");
   await page.getByRole("link", { name: "Demo", exact: true }).first().click();
   await page.waitForURL(/\/demo\/?$/);

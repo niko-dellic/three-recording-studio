@@ -10,7 +10,8 @@
     "README.md",
     "LICENSE",
     "src",
-    "assets/icons"
+    "assets/icons",
+    "CHANGELOG.md"
   ],
   "exports": {
     ".": {
@@ -28,7 +29,7 @@
     }
   },
   "bin": {
-    "three-recording-receiver": "./bin/receiver.mjs"
+    "three-recording-receiver": "bin/receiver.mjs"
   },
   "sideEffects": [
     "**/*.css"
@@ -82,5 +83,27 @@
   },
   "engines": {
     "node": ">=24"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/niko-dellic/three-recording-studio.git"
+  },
+  "homepage": "https://three-recording-studio.vercel.app",
+  "bugs": {
+    "url": "https://github.com/niko-dellic/three-recording-studio/issues"
+  },
+  "keywords": [
+    "three",
+    "threejs",
+    "webgl",
+    "webgpu",
+    "rendering",
+    "mp4",
+    "png",
+    "animation",
+    "recording"
+  ],
+  "publishConfig": {
+    "access": "public"
   }
 }

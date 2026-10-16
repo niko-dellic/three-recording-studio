@@ -39,11 +39,14 @@ try {
     [
       "--input-type=module",
       "-e",
-      `import {RenderSession,WebGLCaptureAdapter,WebGPUCaptureAdapter} from 'three-recording-studio';import {RenderPanel} from 'three-recording-studio/ui';console.log([RenderSession,WebGLCaptureAdapter,WebGPUCaptureAdapter,RenderPanel].map(x=>typeof x).join(','));`,
+      `import {RenderSession,WebGLCaptureAdapter,WebGPUCaptureAdapter,MemorySequenceDestination,DirectoryDestination,saveFileToDirectory,WebSocketDestination} from 'three-recording-studio';import {RenderPanel} from 'three-recording-studio/ui';console.log([RenderSession,WebGLCaptureAdapter,WebGPUCaptureAdapter,RenderPanel,MemorySequenceDestination,DirectoryDestination,saveFileToDirectory,WebSocketDestination].map(x=>typeof x).join(','));`,
     ],
     { cwd: temporary, encoding: "utf8" },
   );
-  assert.equal(result.trim(), "function,function,function,function");
+  assert.equal(
+    result.trim(),
+    "function,function,function,function,function,function,function,function",
+  );
   const lock = JSON.parse(
     await readFile(join(temporary, "package-lock.json"), "utf8"),
   );
@@ -62,6 +65,30 @@ try {
   await readFile(
     join(temporary, "node_modules/three-recording-studio/dist/ui/style.css"),
   );
+  const installed = join(temporary, "node_modules/three-recording-studio");
+  const manifest = JSON.parse(
+    await readFile(join(installed, "package.json"), "utf8"),
+  );
+  assert.equal(manifest.bin["three-recording-receiver"], "bin/receiver.mjs");
+  for (const file of [
+    "LICENSE",
+    "CHANGELOG.md",
+    "dist/index.d.ts",
+    "dist/ui/index.d.ts",
+    "dist/encoding/index.d.ts",
+    "bin/receiver.mjs",
+  ])
+    await readFile(join(installed, file));
+  const receiverResult = execFileSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      `import {createReceiver} from './node_modules/three-recording-studio/bin/receiver.mjs';const receiver=await createReceiver({directory:'recordings',port:0});await receiver.close();console.log('receiver ok');`,
+    ],
+    { cwd: temporary, encoding: "utf8" },
+  );
+  assert.equal(receiverResult.trim(), "receiver ok");
   console.log(
     `Packed install passed without demo or optional encoding dependencies: ${archive}`,
   );

@@ -1,54 +1,48 @@
-# Validation — 15 October 2026
+# Validation — 16 October 2026
 
-Implementation is local and unpublished. The static site and npm archive are built from this repository.
+Release candidate: `three-recording-studio@0.1.0`. npm publication is pending. Repository: https://github.com/niko-dellic/three-recording-studio. Documentation and demo: https://three-recording-studio.vercel.app.
 
-## Verified
+## Verified release checks
 
-| Requirement                                                      | Evidence                                                                                                                                                                  |
-| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Exclusive frame scheduling, readiness, restoration, pause/cancel | 19 passing unit/integration tests in `tests/session.test.ts`, `tests/camera.test.ts`, and `tests/receiver.test.ts`                                                        |
-| WebGL and native WebGPU capture                                  | Chrome browser tests pass on both backends; independent adapter inspection reports Apple / metal-3 and `isFallbackAdapter: false`                                         |
-| Independent 4K panoramic output                                  | Both backends export three 3840 × 1280 frames from the demo's 4:3 viewport, with a deliberately slow destination                                                          |
-| Capture correctness                                              | Red/blue orientation, straight alpha including 50% opacity, and renderer viewport/scissor/size/clear-state restoration are checked on both backends                       |
-| MP4                                                              | Decoded frame count, timestamps, dimensions and duration; memory-limit failure cleanup; actual demo-button download and Theatre playhead restoration                      |
-| Durable PNG progress                                             | Files are acknowledged after atomic persistence; cancellation/reconnect resumes only missing frames; corrupt frames are detected; changed content identities are rejected |
-| Demo recovery                                                    | Identity remains stable across repeated exports and page reloads                                                                                                          |
-| Themed UI                                                        | Theme switching, embedded/floating mode, preview keyboard navigation, unchanged camera, and responsive mobile tabs                                                        |
-| Publisher documentation                                          | Home/guide/API routes, native appearance persistence, search, mobile navigation, background/navbar/sidebar styling, and navigation to/from the built demo                 |
-| Package isolation                                                | Archive installs in a clean temporary consumer; core/UI import without optional encoding dependencies; no Quilt/Theatre/React/VitePress dependency leakage                |
-
-Commands completed successfully:
-
-- `npm run check`: type checking, library build, 19 tests, demo build, docs build, assembled static site.
-- `npm run test:browser`: 16 real-browser tests, without skipped GPU cases.
-- `npm run test:site`: publisher-style static-site browser checks.
-- `npm run test:packed`: clean-consumer installation and entry-point checks.
+- `npm run check`: type checking, library build, **40 unit/integration tests**, demo build, docs build, assembled static site.
+- `npm run test:browser`: **36 Chrome browser tests**, including native WebGPU; no skipped GPU cases.
+- `npm run test:site`: built documentation navigation, search, light/dark themes, mobile layouts, and round-trip navigation to the demo.
+- `npm run test:packed`: archive installation in a fresh consumer without optional encoding or demo dependencies; all destination exports, UI/styles/declarations, license/release notes, and actual packaged receiver startup/shutdown.
 - `npm run format:check`: source formatting.
+- Documentation guide TypeScript examples compile against the current package declarations.
+- `npm publish --dry-run --json`: validates the public 0.1.0 payload without uploading it.
 - `npm audit --omit=dev`: zero reported production dependency vulnerabilities at verification time.
+- npm authentication verified as `niko.dellic`; registry lookup reports no existing public package under this name. Only an actual publish can establish permission to create it.
 
-## Deliverables
+## Covered behavior
 
-- `three-recording-studio-0.1.0.tgz`: installable npm artifact with source, declarations, runtime, styles and receiver CLI.
-- `site/`: static documentation at `/docs/` and demo at `/demo/`.
-- `docs/media/studio.png`: built demo screenshot.
-- `tools/docs/docs/`: integration guide, API contracts, themes, saving/recovery and compatibility documentation.
+| Area              | Evidence                                                                                                                                            |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Lifecycle         | Exclusive scheduling, readiness, pause/cancel, failure cleanup, scene restoration, inclusive frame ranges and timelapse sampling                    |
+| WebGL/WebGPU      | Correct orientation, colors and alpha; renderer-state restoration; 3840 × 1280 exports; portrait row-padding regression; clipping and stencil caps  |
+| MP4               | Decoded frame count, dimensions, timestamps and duration; memory-limit cleanup; Theatre playhead restoration                                        |
+| PNG recovery      | Authentication, origin restrictions, atomic durable acknowledgement, resume of missing/corrupt frames, content identity checks                      |
+| Destinations      | Memory/folder/receiver available for both formats; PNG ZIP playback and scrubbing; real filesystem handles; finalized MP4 folder and receiver files |
+| Preview           | Channel replacement/deletion, explicit download, direct panning, custom video transport, smooth scrubber, hover keyboard playback and fullscreen    |
+| Demo              | Quilt theme and responsive controls, independent camera views, guides, docked Theatre workspace, and custom-layout popout state restoration         |
+| Package isolation | Core/UI imports work without Mediabunny, Quilt, Theatre, React or VitePress                                                                         |
 
-## Explicit boundaries
+Folder picker tests use real browser filesystem handles with a stubbed picker. The native OS permission dialog is not automated. Receiver MP4 transfers are finalized-file uploads and do not support resume. PNG receiver jobs support durable resume; folder exports always create a fresh run folder.
 
-The tested browser is Google Chrome on this Mac. Other browser/OS codec combinations are capability-dependent and are not claimed as verified. The initial Three.js peer range is 0.186.x.
+## Release boundaries
 
-General stateful simulation checkpoints, audio, automatic React Three Fiber integration, native pop-out windows and distributed rendering are outside the agreed first release. Custom postprocessing requires an application hook. MP4 recovery after page reload restarts the file; durable recovery uses PNG sequences.
+The verified browser is installed Google Chrome on this Mac using native WebGPU. Other browser/OS codec combinations are capability-dependent and are not claimed as verified. The initial Three.js peer range is 0.186.x. The receiver and repository tooling require Node 24+.
 
-The MP4 limit bounds encoded output size, not total process memory. Codec queues, readback buffers, GPU allocations and temporary copies add overhead. Four-sample capture and output conversion are tested; arbitrary custom material/pipeline combinations still require integration testing.
+Memory PNG output defaults to 128 MiB including ZIP headers. MP4 encoding and retained channel results each default to 256 MiB. PNG frames and their ZIP both count toward retained-channel limits. These bound output sizes, not total process memory: codec queues, temporary copies, frame buffers and GPU allocations add overhead. Results held in memory do not survive reload.
 
-The requested VitePress 1.6.4 documentation stack retains development-tool advisories in its transitive dependencies (3 moderate and 1 high reported in the full dependency audit). Production package dependencies have no reported advisories. Development servers bind to loopback; deployment uses static files. The demo currently bundles Theatre Studio with the scene, producing a roughly 716 kB gzip initial script; code splitting is a future optimization.
+Audio, automatic stateful-simulation checkpoints, tiled/distributed rendering and automatic React Three Fiber integration remain outside this release. Custom postprocessing requires an application hook. Quilt owns demo pane popouts; the core recording library does not provide native window management.
 
-No npm publication, remote GitHub repository, or hosted deployment was performed.
+The pinned VitePress 1.6.4 development documentation stack has four transitive advisories (three moderate, one high). Production dependencies have none. Development servers bind to loopback; deployment serves static output. Large demo bundles produce Vite size warnings; they are not shipped as library runtime dependencies.
 
-## Demo refinement
+## Artifacts
 
-Quilt neutral theme and border resize mode, compact fullscreen toolbar, responsive icon transport, and a separate brief homepage are implemented. The demo uses the requested bunny VTK asset with Theatre keyframes driving a clipping plane. Pixel-count checks verify clipping on both WebGL and native WebGPU. Fullscreen entry/exit and mobile transport wrapping pass browser tests.
-
-Render gallery: MP4 replay and explicit download, current-playhead PNG capture, channel switching, and preservation of previous results pass browser checks. Results are held in memory until deletion/disposal and do not survive page reload. The demo hides floating-panel controls.
-
-PNG destination selection: folder writes tested with real browser filesystem handles via a stubbed native picker, including decoded PNG dimensions, unique run folders, current-frame export, cancellation of folder selection, and unsupported-picker fallback. Native OS dialog interaction is not automated.
+- `three-recording-studio-0.1.0.tgz`: npm archive with runtime, declarations, source maps/source, styles, receiver CLI, license and release notes.
+- `site/`: static docs at `/`, `/guide`, `/api`, `/saving`, and demo at `/demo/`.
+- `docs/media/studio.png` and `tools/docs/docs/public/studio.png`: current demo screenshot.
+- `CHANGELOG.md`: initial release notes.
+- `RELEASE.md`: reproducible release and publication procedure.
