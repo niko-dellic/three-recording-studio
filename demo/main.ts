@@ -6,8 +6,8 @@ import { Workspace, themeFamilies, defaultShortcuts } from "quilt-vanilla";
 import { ThreeSession, CameraHelpers } from "quilt-three";
 import type { PaneContext } from "quilt-vanilla";
 import type { Layout } from "quilt-core";
-import { getProject, createRafDriver } from "@theatre/core";
-import studio from "@theatre/studio";
+import type { AnimationRuntime } from "./keyframes";
+
 import {
   RenderSession,
   fitCamera,
@@ -20,23 +20,42 @@ import {
 import { RenderPanel } from "three-recording-studio/ui";
 import { Mp4Destination } from "three-recording-studio/encoding";
 import { renderIcon } from "./icons";
-import { animationState } from "./animation";
+
 import { CameraViewSettings } from "./camera-view";
 
 async function main() {
+  for (const element of document.querySelectorAll<HTMLElement>(
+    "[data-site-icon]",
+  )) {
+    const icon = renderIcon(element.dataset.siteIcon!, document);
+    if (icon) element.replaceChildren(icon);
+  }
+  document.addEventListener("keydown", (event) => {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+      event.preventDefault();
+      location.href = "/?search=1";
+    }
+  });
   const preferredMode = document.documentElement.classList.contains("light")
     ? "light"
     : "dark";
-  studio.initialize();
-  studio.ui.hide();
-  const project = getProject("Three Recording Bunny Cameras", {
-    state: animationState,
+  // Keep the editor document mounted so both workspaces share one Theatre runtime.
+  const editorFrame = document.createElement("iframe");
+  editorFrame.title = "Keyframe editor";
+  editorFrame.className = "keyframe-editor-frame";
+  const editorLoaded = new Promise<void>((resolve, reject) => {
+    editorFrame.onload = () => resolve();
+    editorFrame.onerror = () =>
+      reject(new Error("Could not load the keyframe editor"));
   });
-  await project.ready;
-  const sheet = project.sheet("Scene"),
-    driver = createRafDriver({ name: "Render clock" }),
-    animated = sheet.object("Clipping plane", { height: 1.35 });
-  const animatedCamera = sheet.object("Recording camera", { angle: 0 });
+  editorFrame.src = `${import.meta.env.BASE_URL}keyframes.html`;
+  document.body.append(editorFrame);
+  await editorLoaded;
+  const { studio, project, sheet, driver, animated, animatedCamera } = await (
+    editorFrame.contentWindow as unknown as {
+      animationRuntime: Promise<AnimationRuntime>;
+    }
+  ).animationRuntime;
   const scene = new THREE.Scene();
   scene.background = new THREE.Color("#262626");
   const camera = new THREE.PerspectiveCamera(38, 4 / 3, 0.1, 100);
@@ -182,6 +201,7 @@ async function main() {
     previous = 0,
     studioVisible = false;
   let appliedTime = -1;
+  let appliedAngle = NaN;
   const apply = (time: number, forceCamera = true) => {
     sheet.sequence.position = time;
     driver.tick(time * 1000);
@@ -189,13 +209,18 @@ async function main() {
     clippingPlane.constant = value.height;
     planeGuide.position.y = value.height;
     cap.position.y = value.height;
-    if (forceCamera || time !== appliedTime) {
+    if (
+      forceCamera ||
+      time !== appliedTime ||
+      animatedCamera.value.angle !== appliedAngle
+    ) {
       const angle = animatedCamera.value.angle + Math.atan2(3.2, 5.8);
       camera.position.set(Math.sin(angle) * 6.62, 2.1, Math.cos(angle) * 6.62);
       camera.lookAt(0, 0, 0);
       camera.updateMatrixWorld(true);
     }
     appliedTime = time;
+    appliedAngle = animatedCamera.value.angle;
   };
   apply(0);
   const capture = gpu
@@ -348,6 +373,7 @@ async function main() {
   hosts.settings.append(panelHost);
   const panel: RenderPanel = new RenderPanel({
     container: panelHost,
+    renderIcon,
     allowFloating: false,
     imageDestination: (job) =>
       select.value === "frames" ? createDestination(job) : undefined,
@@ -413,6 +439,7 @@ async function main() {
     id: `${id}-group`,
     panes: [id],
     active: id,
+    dedicatedPaneId: id,
   });
   const layout: Layout = {
     version: 1,
@@ -487,6 +514,15 @@ async function main() {
     maxDistance: 12,
     visibleIn: () => !cameraSettings.cameraView && cameraSettings.showHelper,
   });
+  hosts.keyframes = document.createElement("div");
+  hosts.keyframes.className = "pane-content keyframes-host";
+  const editorPane = {
+    id: "keyframes",
+    type: "keyframes",
+    title: "Keyframe editor",
+    icon: "timeline",
+    capabilities: { popout: false, close: false },
+  };
   const workspace: Workspace = new Workspace({
     container: document.querySelector<HTMLElement>("#workspace")!,
     initialLayout: layout,
@@ -503,14 +539,14 @@ async function main() {
       Object.keys(hosts).map((id) => [
         id,
         {
-          title: layout.panes[id].title,
-          icon: layout.panes[id].icon,
+          title: (layout.panes[id] ?? editorPane).title,
+          icon: (layout.panes[id] ?? editorPane).icon,
           create: () =>
             Object.values(workspace.exportLayout().panes).some(
               (pane) => pane.type === id,
             )
               ? undefined
-              : { ...layout.panes[id] },
+              : { ...(layout.panes[id] ?? editorPane) },
           render: (context: PaneContext) => {
             context.element.append(hosts[id]);
             if (id !== "scene") return;
@@ -583,6 +619,7 @@ async function main() {
   const compact = matchMedia("(max-width: 760px)");
   let desktopLayout = layout;
   const adaptLayout = () => {
+    if (studioVisible) return;
     if (compact.matches) {
       desktopLayout = workspace.exportLayout();
       workspace.loadLayout({
@@ -598,6 +635,23 @@ async function main() {
   };
   compact.addEventListener("change", adaptLayout);
   if (compact.matches) adaptLayout();
+  const timelineContent =
+    hosts.timeline.querySelector<HTMLElement>(".timeline")!;
+  const fitTimeline = () => {
+    if (compact.matches || !timelineContent.isConnected) return;
+    const height = Math.ceil(timelineContent.getBoundingClientRect().height);
+    const pane = workspace.exportLayout().panes.timeline;
+    if (height > 0 && pane && pane.size?.minHeight !== height) {
+      workspace.getPane("timeline")?.update({
+        ...pane,
+        size: { ...pane.size, minHeight: height, maxHeight: height },
+      });
+    }
+  };
+  const timelineObserver = new ResizeObserver(fitTimeline);
+  timelineObserver.observe(timelineContent);
+  compact.addEventListener("change", fitTimeline);
+  fitTimeline();
   const resize = () => {
     if (exclusive) return;
     viewportSession.invalidate();
@@ -610,16 +664,61 @@ async function main() {
   backend.onchange = () => {
     location.search = `?backend=${backend.value}`;
   };
-  document.querySelector<HTMLButtonElement>("#studio")!.onclick = () => {
-    studioVisible = !studioVisible;
-    studioVisible ? studio.ui.restore() : studio.ui.hide();
+  const workspacePicker =
+    document.querySelector<HTMLSelectElement>("#workspace-picker")!;
+  let renderingLayout = workspace.exportLayout();
+  const keyframeLayout: Layout = {
+    version: 1,
+    panes: { scene: layout.panes.scene, keyframes: editorPane },
+    root: {
+      kind: "split",
+      id: "keyframe-split",
+      axis: "vertical",
+      ratio: 0.38,
+      children: [group("scene"), group("keyframes")],
+    },
+    popouts: [],
+    maximized: null,
+  };
+  let editingLayout = keyframeLayout;
+  workspacePicker.onchange = () => {
+    const editing = workspacePicker.value === "keyframes";
+    if (editing === studioVisible) return;
+    playing = false;
+    sheet.sequence.pause();
+    if (editing) renderingLayout = workspace.exportLayout();
+    else editingLayout = workspace.exportLayout();
+    studioVisible = editing;
+    editorFrame.style.visibility = "hidden";
+    workspace.loadLayout(editing ? editingLayout : renderingLayout);
+    editing ? studio.ui.restore() : studio.ui.hide();
+    fitTimeline();
+  };
+  const positionEditor = () => {
+    if (!studioVisible || exclusive || !hosts.keyframes.isConnected) {
+      editorFrame.style.visibility = "hidden";
+      return;
+    }
+    const rect = hosts.keyframes.getBoundingClientRect();
+    Object.assign(editorFrame.style, {
+      visibility: "visible",
+      left: `${rect.left}px`,
+      top: `${rect.top}px`,
+      width: `${rect.width}px`,
+      height: `${rect.height}px`,
+    });
   };
   const themeButton = document.querySelector<HTMLButtonElement>("#theme")!;
   const applyTheme = (light: boolean) => {
     document.body.classList.toggle("light", light);
     document.documentElement.classList.toggle("light", light);
     document.documentElement.classList.toggle("dark", !light);
-    themeButton.textContent = light ? "Dark theme" : "Light theme";
+    themeButton.setAttribute("aria-checked", String(!light));
+    themeButton.title = light
+      ? "Switch to dark theme"
+      : "Switch to light theme";
+    const icon = renderIcon(light ? "sun" : "moon", document)!;
+    themeButton.querySelector(".theme-thumb")!.replaceChildren(icon);
     const theme = themeFamilies.neutral[light ? "light" : "dark"];
     workspace.setTheme({ ...theme, fontSize: "11px", headerHeight: "32px" });
     panel.setTheme({
@@ -677,12 +776,13 @@ async function main() {
     scrub.disabled = busy;
     play.disabled = busy;
     backend.disabled = busy;
-    document.querySelector<HTMLButtonElement>("#studio")!.disabled = busy;
+    workspacePicker.disabled = busy;
     document.querySelector("#app-status")!.textContent =
       `${gpu ? "WebGPU" : "WebGL"} · ${progress.state} · ${progress.completed}/${progress.total}`;
   });
   function tick(now: number) {
     raf = requestAnimationFrame(tick);
+    positionEditor();
     if (!exclusive && !session.busy) {
       if (playing) position = (position + (now - previous) / 1000) % 6;
       else position = sheet.sequence.position;
@@ -714,6 +814,7 @@ async function main() {
       camera,
       workspace,
       cameraSettings,
+      animationRuntime: { studio, project, sheet, animated, animatedCamera },
       viewportSession,
       cameraHelpers,
       orbitCamera,
@@ -734,6 +835,8 @@ async function main() {
     () => {
       cancelAnimationFrame(raf);
       observer.disconnect();
+      timelineObserver.disconnect();
+      editorFrame.remove();
       document.removeEventListener("fullscreenchange", syncFullscreen);
       compact.removeEventListener("change", adaptLayout);
       cameraHelpers.dispose();

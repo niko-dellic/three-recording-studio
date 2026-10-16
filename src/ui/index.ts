@@ -38,8 +38,20 @@ export interface RenderPanelOptions {
   currentFrame?: () => number;
   theme?: RenderTheme;
   icons?: Partial<
-    Record<"render" | "pause" | "cancel" | "fit" | "float", string>
+    Record<
+      | "render"
+      | "pause"
+      | "cancel"
+      | "actualSize"
+      | "fit"
+      | "float"
+      | "newChannel"
+      | "download"
+      | "delete",
+      string
+    >
   >;
+  renderIcon?: (key: string, document: Document) => Element | undefined;
   /** If provided, mount the preview here while controls remain in container. */
   previewContainer?: HTMLElement;
 }
@@ -68,7 +80,6 @@ export class RenderPanel {
   private video: HTMLVideoElement;
   private image: HTMLImageElement;
   private channels: HTMLSelectElement;
-  private results: HTMLSelectElement;
   private downloadButton: HTMLButtonElement;
   private newChannelButton: HTMLButtonElement;
   private stillButton: HTMLButtonElement;
@@ -160,7 +171,7 @@ export class RenderPanel {
     tools.className = "trs-preview-tools";
     tools.append(
       this.button("Fit", "fit", () => this.fit()),
-      this.button("100%", undefined, () => {
+      this.button("100%", "actualSize", () => {
         this.fitting = false;
         this.scale = 1 / (doc.defaultView?.devicePixelRatio ?? 1);
         this.offset = { x: 0, y: 0 };
@@ -172,9 +183,6 @@ export class RenderPanel {
     this.zoomOutput.setAttribute("aria-label", "Preview zoom");
     this.zoomOutput.title = "100% = one image pixel per display pixel";
     tools.append(this.zoomOutput);
-    const hint = doc.createElement("span");
-    hint.textContent = "Scroll to zoom · drag to pan";
-    tools.append(hint);
     this.viewport = doc.createElement("div");
     this.viewport.className = "trs-viewport";
     this.viewport.tabIndex = 0;
@@ -206,48 +214,49 @@ export class RenderPanel {
     this.channels = doc.createElement("select");
     this.channels.setAttribute("aria-label", "Render channel");
     this.channels.add(new Option("Channel 1", "1"));
-    this.newChannelButton = this.button("New channel", undefined, () => {
+    this.newChannelButton = this.button("New channel", "newChannel", () => {
       const id = String(this.channels.options.length + 1);
       this.channels.add(new Option(`Channel ${id}`, id));
       this.channels.value = id;
       this.refreshResults();
     });
-    this.results = doc.createElement("select");
-    this.results.setAttribute("aria-label", "Saved render");
     this.channels.onchange = () => this.refreshResults();
-    this.results.onchange = () => this.displayResult();
-    const remove = this.button("Delete render", undefined, () => {
+    const remove = this.button("Delete render", "delete", () => {
       if (
-        this.results.value === "" ||
+        !this.artifacts.some((artifact) => artifact.channel === this.channel) ||
         this.options.session.busy ||
         this.operation
       )
         return;
-      const index = Number(this.results.value);
+      const index = this.artifacts.findIndex(
+        (artifact) => artifact.channel === this.channel,
+      );
       const [artifact] = this.artifacts.splice(index, 1);
       this.video.pause();
       URL.revokeObjectURL(artifact.url);
       this.refreshResults();
     });
-    this.downloadButton = this.button("Download", undefined, () => {
-      const artifact = this.artifacts[Number(this.results.value)];
-      if (!artifact || this.results.value === "") return;
+    this.downloadButton = this.button("Download", "download", () => {
+      const artifact = this.artifacts.find(
+        (artifact) => artifact.channel === this.channel,
+      );
+      if (!artifact) return;
       const link = doc.createElement("a");
       link.href = artifact.url;
       link.download = artifact.filename;
       link.click();
     });
     this.downloadButton.disabled = true;
-    this.results.add(new Option("No saved renders", ""));
     slotTools.append(
       this.channels,
       this.newChannelButton,
-      this.results,
       this.downloadButton,
       remove,
+      tools,
     );
-    this.previewElement.append(slotTools, tools, this.viewport);
+    this.previewElement.append(slotTools, this.viewport);
     (options.previewContainer ?? this.element).append(this.previewElement);
+    this.setupToolbarTooltips();
     this.setupNavigation();
     this.setupDragging(heading);
     this.observer = new ResizeObserver(() => {
@@ -279,9 +288,14 @@ export class RenderPanel {
         : label;
     if (icon && !this.options.icons?.[icon]) {
       const paths = {
+        newChannel: "M12 5v14M5 12h14",
+        download:
+          "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3",
+        delete: "M3 6h18M19 6v14H5V6M9 6V3h6v3M10 10v6M14 10v6",
         render: "M7 4l12 8-12 8z",
         pause: "M8 5v14M16 5v14",
         cancel: "M6 6h12v12H6z",
+        actualSize: "M8 3H5v18h3M16 3h3v18h-3M10 8h2v8M10 16h4",
         fit: "M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5",
         float: "M8 3h13v13M21 3L10 14M3 8v13h13",
       };
@@ -300,11 +314,89 @@ export class RenderPanel {
       svg.append(path);
       button.prepend(svg);
     }
+    if (icon) {
+      const custom = this.options.renderIcon?.(icon, button.ownerDocument);
+      if (custom) {
+        button.querySelector("svg")?.remove();
+        custom.classList.add("trs-icon");
+        custom.setAttribute("aria-hidden", "true");
+        button.prepend(custom);
+      }
+      if (
+        ["newChannel", "download", "delete", "fit", "actualSize"].includes(icon)
+      ) {
+        const graphic = button.querySelector("svg");
+        if (graphic) {
+          button.replaceChildren(graphic);
+          button.classList.add("trs-icon-button");
+        }
+      }
+    }
+    button.title = label;
     button.setAttribute("aria-label", label);
     button.addEventListener("click", action, {
       signal: this.controller.signal,
     });
     return button;
+  }
+  private setupToolbarTooltips() {
+    let tooltip: HTMLElement | undefined;
+    let anchor: HTMLButtonElement | undefined;
+    const hide = () => {
+      anchor?.removeAttribute("aria-describedby");
+      tooltip?.remove();
+      tooltip = undefined;
+      anchor = undefined;
+    };
+    const show = (event: Event) => {
+      const target = event.target as HTMLElement | null;
+      const button = target?.closest<HTMLButtonElement>(
+        ".trs-slot-tools button",
+      );
+      if (!button || anchor === button) return;
+      hide();
+      anchor = button;
+      const doc = button.ownerDocument;
+      const win = doc.defaultView!;
+      tooltip = doc.createElement("div");
+      tooltip.className = "trs-tooltip";
+      tooltip.id = `trs-tooltip-${Math.random().toString(36).slice(2)}`;
+      tooltip.setAttribute("role", "tooltip");
+      tooltip.setAttribute("popover", "manual");
+      tooltip.textContent =
+        button.getAttribute("aria-label") === "100%"
+          ? "Actual size (100%)"
+          : button.getAttribute("aria-label");
+      button.removeAttribute("title");
+      button.setAttribute("aria-describedby", tooltip.id);
+      const colors = win.getComputedStyle(this.previewElement);
+      for (const key of ["surface", "text", "border"])
+        tooltip.style.setProperty(
+          `--trs-${key}`,
+          colors.getPropertyValue(`--trs-${key}`),
+        );
+      doc.body.append(tooltip);
+      tooltip.showPopover?.();
+      const rect = button.getBoundingClientRect();
+      const box = tooltip.getBoundingClientRect();
+      tooltip.style.left = `${Math.max(8, Math.min(rect.left + (rect.width - box.width) / 2, win.innerWidth - box.width - 8))}px`;
+      tooltip.style.top = `${rect.bottom + box.height + 8 < win.innerHeight ? rect.bottom + 6 : rect.top - box.height - 6}px`;
+    };
+    const root = this.previewElement;
+    const options = { signal: this.controller.signal };
+    root.addEventListener("pointerover", show, options);
+    root.addEventListener("focusin", show, options);
+    root.addEventListener("pointerout", hide, options);
+    root.addEventListener("focusout", hide, options);
+    root.addEventListener("pointerdown", hide, options);
+    root.addEventListener(
+      "keydown",
+      (event) => {
+        if (event.key === "Escape") hide();
+      },
+      options,
+    );
+    this.cleanup.push(hide);
   }
   private field(key: string, label: string, value: string | number | boolean) {
     const doc = this.element.ownerDocument,
@@ -397,9 +489,10 @@ export class RenderPanel {
       ["preparing", "rendering", "paused", "cancelling"].includes(
         progress.state,
       );
+    if (["failed", "cancelled"].includes(progress.state) && !busy)
+      this.displayResult();
     this.channels.disabled = busy;
     this.newChannelButton.disabled = busy;
-    this.results.disabled = busy;
     this.stillButton.disabled = busy;
     for (const field of this.fields.values()) field.disabled = busy;
     this.renderButton.disabled = busy;
@@ -426,6 +519,13 @@ export class RenderPanel {
   /** Retain a completed render in its channel. Nothing is downloaded automatically. */
   addResult(blob: Blob, filename: string, channel = this.channel) {
     if (this.controller.signal.aborted) return;
+    const previous = this.artifacts.findIndex(
+      (artifact) => artifact.channel === channel,
+    );
+    if (previous >= 0) {
+      const [replaced] = this.artifacts.splice(previous, 1);
+      URL.revokeObjectURL(replaced.url);
+    }
     this.artifacts.push({
       channel,
       filename,
@@ -435,35 +535,28 @@ export class RenderPanel {
     if (channel === this.channel) this.refreshResults();
   }
   private refreshResults() {
-    this.results.replaceChildren(new Option("Live preview", ""));
-    this.artifacts.forEach((artifact, index) => {
-      if (artifact.channel === this.channel) {
-        this.results.add(
-          new Option(
-            `${this.results.options.length} · ${artifact.filename}`,
-            String(index),
-          ),
-        );
-        this.results.value = String(index);
-      }
-    });
     this.displayResult();
   }
   private displayResult() {
     this.video.pause();
     this.video.removeAttribute("src");
     this.video.load();
-    const artifact =
-      this.results.value === ""
-        ? undefined
-        : this.artifacts[Number(this.results.value)];
+    const artifact = this.artifacts.find(
+      (artifact) => artifact.channel === this.channel,
+    );
     this.downloadButton.disabled = !artifact;
     this.canvas.hidden = !!artifact;
     this.video.hidden = !artifact?.type.startsWith("video/");
     this.setVideoTools(!this.video.hidden);
     this.image.hidden = !artifact?.type.startsWith("image/");
     this.updateZoom();
-    if (!artifact) return;
+    if (!artifact) {
+      this.canvas
+        .getContext("2d")!
+        .clearRect(0, 0, this.canvas.width, this.canvas.height);
+      this.image.removeAttribute("src");
+      return;
+    }
     if (artifact.type.startsWith("video/")) this.video.src = artifact.url;
     else {
       this.image.onload = () => this.fit();
@@ -523,9 +616,6 @@ export class RenderPanel {
       this.previewElement.querySelector<HTMLElement>(".trs-preview-tools")!;
     for (const button of tools.querySelectorAll("button"))
       button.disabled = video;
-    tools.querySelector("span")!.textContent = video
-      ? "Play or scrub the completed render"
-      : "Scroll to zoom · drag to pan";
   }
   showFrame(frame: CapturedFrame, index?: number) {
     this.setVideoTools(false);
@@ -533,9 +623,6 @@ export class RenderPanel {
     this.video.hidden = true;
     this.image.hidden = true;
     this.canvas.hidden = false;
-    if (!this.results.querySelector('option[value=""]'))
-      this.results.add(new Option("Live preview", ""));
-    this.results.value = "";
     this.downloadButton.disabled = true;
     const resized =
       this.canvas.width !== frame.width || this.canvas.height !== frame.height;

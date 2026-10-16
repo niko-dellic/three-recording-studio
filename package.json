@@ -9,7 +9,8 @@
     "bin",
     "README.md",
     "LICENSE",
-    "src"
+    "src",
+    "assets/icons"
   ],
   "exports": {
     ".": {

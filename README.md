@@ -1,3 +1,5 @@
+<img src="assets/icons/android-chrome-192x192.png" width="48" height="48" alt="Three Recording Studio camera icon" />
+
 # Three Recording Studio
 
 A render workspace for existing Three.js scenes: exact frame timing, independent output framing, a themed preview panel, image sequences with recovery, and browser MP4 export.

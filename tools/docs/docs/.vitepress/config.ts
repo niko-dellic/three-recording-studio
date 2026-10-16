@@ -5,6 +5,36 @@ export default defineConfig({
   title: "Three Recording Studio",
   description: "Create PNG images and MP4 videos from Three.js scenes.",
   appearance: true,
+  head: [
+    ["link", { rel: "icon", href: "/favicon.ico", sizes: "any" }],
+    [
+      "link",
+      {
+        rel: "icon",
+        type: "image/png",
+        sizes: "16x16",
+        href: "/favicon-16x16.png",
+      },
+    ],
+    [
+      "link",
+      {
+        rel: "icon",
+        type: "image/png",
+        sizes: "32x32",
+        href: "/favicon-32x32.png",
+      },
+    ],
+    [
+      "link",
+      {
+        rel: "apple-touch-icon",
+        sizes: "180x180",
+        href: "/apple-touch-icon.png",
+      },
+    ],
+    ["link", { rel: "manifest", href: "/site.webmanifest" }],
+  ],
   vite: {
     server: {
       port: 5190,
@@ -25,6 +55,18 @@ export default defineConfig({
     },
   },
   themeConfig: {
+    logo: {
+      src: "/android-chrome-192x192.png",
+      alt: "",
+      width: 24,
+      height: 24,
+    },
+    socialLinks: [
+      {
+        icon: "github",
+        link: "https://github.com/niko-dellic/three-recording-studio",
+      },
+    ],
     footer: {
       message: "Three Recording Studio · 0.1.0 preview",
       copyright: "MIT licensed",

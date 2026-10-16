@@ -381,7 +381,7 @@ test("compact header, fullscreen, and responsive icon transport", async ({
   await page.screenshot({ path: "test-results/timeline-mobile.png" });
 });
 
-test("still renders preserve channels and previous results without automatic downloads", async ({
+test("still renders replace their channel and preserve other channels without automatic downloads", async ({
   page,
 }) => {
   await page.goto("/");
@@ -413,15 +413,17 @@ test("still renders preserve channels and previous results without automatic dow
     .selectOption("1");
   await expect(image).toHaveAttribute("src", first!);
   await page.getByRole("button", { name: "Render image", exact: true }).click();
+  await expect(image).toBeVisible();
+  await expect(image).not.toHaveAttribute("src", first!);
+  const replacement = await image.getAttribute("src");
   await expect(
-    page
-      .getByRole("combobox", { name: "Saved render", exact: true })
-      .locator("option"),
-  ).toHaveCount(3);
-  await page
-    .getByRole("combobox", { name: "Saved render", exact: true })
-    .selectOption("0");
-  await expect(image).toHaveAttribute("src", first!);
+    page.getByRole("combobox", { name: "Saved render", exact: true }),
+  ).toHaveCount(0);
+  await page.getByLabel("Render channel", { exact: true }).selectOption("2");
+  await expect(image).toBeVisible();
+  await expect(image).not.toHaveAttribute("src", replacement!);
+  await page.getByLabel("Render channel", { exact: true }).selectOption("1");
+  await expect(image).toHaveAttribute("src", replacement!);
   expect(downloads).toBe(0);
   const download = page.waitForEvent("download");
   await page.getByRole("button", { name: "Download", exact: true }).click();
@@ -429,12 +431,10 @@ test("still renders preserve channels and previous results without automatic dow
   await page
     .getByRole("button", { name: "Delete render", exact: true })
     .click();
+  await expect(image).toBeHidden();
   await expect(
-    page
-      .getByRole("combobox", { name: "Saved render", exact: true })
-      .locator("option"),
-  ).toHaveCount(2);
-  await expect(image).not.toHaveAttribute("src", first!);
+    page.getByRole("button", { name: "Download", exact: true }),
+  ).toBeDisabled();
 });
 
 test("PNG folder selection writes sequences and stills into separate directories", async ({
@@ -785,4 +785,48 @@ test("viewport navigation persists while paused and scrubbing restores the recor
       () => (window as any).trsDemo.cameraHelpers.constructor.name,
     ),
   ).toBe("CameraHelpers");
+});
+
+test("keyframes workspace contains Theatre and shares edits with rendering", async ({
+  page,
+}) => {
+  await page.goto("/demo/");
+  await page.waitForFunction(() => !!(window as any).trsDemo);
+  await expect(page.locator('iframe[title="Keyframe editor"]')).toBeHidden();
+  const initial = await page.evaluate(() =>
+    (window as any).trsDemo.camera.position.toArray(),
+  );
+  await page.getByLabel("Workspace", { exact: true }).selectOption("keyframes");
+  const editor = page.locator('iframe[title="Keyframe editor"]');
+  await expect(editor).toBeVisible();
+  const box = (await editor.boundingBox())!;
+  const pane = (await page.locator(".keyframes-host").boundingBox())!;
+  expect(Math.abs(box.y - pane.y)).toBeLessThan(2);
+  expect(Math.abs(box.height - pane.height)).toBeLessThan(2);
+  await page.evaluate(() => {
+    const { studio, animatedCamera, sheet } = (window as any).trsDemo
+      .animationRuntime;
+    sheet.sequence.position = 0;
+    studio.transaction(({ set }: any) => set(animatedCamera.props.angle, 1));
+  });
+  await expect
+    .poll(() =>
+      page.evaluate(() => (window as any).trsDemo.camera.position.toArray()),
+    )
+    .not.toEqual(initial);
+  await page.getByLabel("Workspace", { exact: true }).selectOption("rendering");
+  await expect(editor).toBeHidden();
+  await expect(page.getByLabel("Render camera", { exact: true })).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => (window as any).trsDemo.animationRuntime.animatedCamera.value.angle,
+    ),
+  ).toBeCloseTo(1);
+  await page.getByLabel("Workspace", { exact: true }).selectOption("keyframes");
+  await expect(editor).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => (window as any).trsDemo.animationRuntime.animatedCamera.value.angle,
+    ),
+  ).toBeCloseTo(1);
 });

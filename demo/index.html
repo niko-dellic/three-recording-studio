@@ -34,44 +34,100 @@
       }
     </style>
     <link rel="stylesheet" href="/style.css" />
-    <link rel="icon" href="data:," />
+    <link rel="icon" href="%BASE_URL%favicon.ico" sizes="any" />
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="16x16"
+      href="%BASE_URL%favicon-16x16.png"
+    />
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="32x32"
+      href="%BASE_URL%favicon-32x32.png"
+    />
+    <link
+      rel="apple-touch-icon"
+      sizes="180x180"
+      href="%BASE_URL%apple-touch-icon.png"
+    />
+    <link rel="manifest" href="%BASE_URL%site.webmanifest" />
     <title>Three Recording Studio</title>
   </head>
   <body>
     <header class="app-header">
-      <a class="brand" href="/"
-        ><span class="brand-mark">◉</span> Three Recording Studio
-        <small>0.1</small></a
-      >
-      <nav>
-        <a href="/">Home</a>
-        <a href="/guide">Documentation ↗</a
-        ><button id="theme">Light theme</button
-        ><button id="studio">Edit keyframes</button
-        ><select id="backend" aria-label="Rendering backend">
-          <option value="webgl">WebGL</option>
-          <option value="webgpu">WebGPU</option>
-        </select>
-        <button
-          id="fullscreen"
-          aria-label="Enter fullscreen"
-          title="Enter fullscreen"
-          aria-pressed="false"
+      <div class="site-header-inner">
+        <a class="brand" href="/"
+          ><img
+            class="brand-mark"
+            src="%BASE_URL%android-chrome-192x192.png"
+            width="24"
+            height="24"
+            alt=""
+          />Three Recording Studio</a
         >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.5"
-            aria-hidden="true"
+        <a
+          class="site-search"
+          href="/?search=1"
+          aria-label="Search documentation"
+          ><span data-site-icon="search"></span><span>Search</span
+          ><kbd>⌘ K</kbd></a
+        >
+        <nav class="site-nav" aria-label="Site navigation">
+          <a href="/">Home</a><a href="/guide">Guide</a><a href="/api">API</a
+          ><a href="/demo" aria-current="page">Demo</a>
+          <span class="site-separator"></span>
+          <button
+            id="theme"
+            class="theme-switch"
+            role="switch"
+            aria-label="Dark mode"
+            aria-checked="true"
+            title="Switch to light theme"
           >
-            <path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5" />
-          </svg>
-        </button>
-      </nav>
+            <span class="theme-thumb" data-site-icon="moon"></span>
+          </button>
+          <span class="site-separator"></span>
+          <a
+            class="github-link"
+            href="https://github.com/niko-dellic/three-recording-studio"
+            aria-label="GitHub repository"
+            title="GitHub repository"
+            target="_blank"
+            rel="noopener noreferrer"
+            ><span data-site-icon="github"></span
+          ></a>
+        </nav>
+      </div>
     </header>
+    <div class="studio-toolbar" aria-label="Studio controls">
+      <select id="workspace-picker" aria-label="Workspace">
+        <option value="rendering">Rendering</option>
+        <option value="keyframes">Keyframes</option></select
+      ><select id="backend" aria-label="Rendering backend">
+        <option value="webgl">WebGL</option>
+        <option value="webgpu">WebGPU</option>
+      </select>
+      <button
+        id="fullscreen"
+        aria-label="Enter fullscreen"
+        title="Enter fullscreen"
+        aria-pressed="false"
+      >
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+          aria-hidden="true"
+        >
+          <path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5" />
+        </svg>
+      </button>
+    </div>
     <main id="workspace"></main>
     <footer>
       <span id="app-status">Preparing scene…</span
