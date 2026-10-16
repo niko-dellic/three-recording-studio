@@ -33,6 +33,11 @@ async function atomic(path, bytes) {
 }
 function normalize(job) {
   if (
+    job?.fileName !== undefined &&
+    !/^[a-zA-Z0-9_-]{1,80}$/.test(job.fileName)
+  )
+    throw Error("Invalid file name");
+  if (
     !job ||
     !/^[a-zA-Z0-9_-]{1,80}$/.test(job.id) ||
     typeof job.contentId !== "string" ||
@@ -66,6 +71,7 @@ function normalize(job) {
     throw Error("Invalid camera fit");
   return {
     id: job.id,
+    ...(job.fileName === undefined ? {} : { fileName: job.fileName }),
     contentId: job.contentId,
     width: job.width,
     height: job.height,
@@ -125,7 +131,7 @@ export async function createReceiver({
               png.readUInt32BE(20) !== job.height
             )
               throw Error("PNG dimensions do not match job");
-            const filename = `frame-${String(frame).padStart(8, "0")}.png`;
+            const filename = `${job.fileName ?? "frame"}-${String(frame).padStart(8, "0")}.png`;
             const existing = await lstat(join(folder, filename)).catch(
               () => null,
             );
@@ -178,7 +184,7 @@ export async function createReceiver({
             const saved = [];
             for (const [index, entry] of Object.entries(manifest.frames)) {
               const frame = Number(index),
-                filename = `frame-${String(frame).padStart(8, "0")}.png`;
+                filename = `${job.fileName ?? "frame"}-${String(frame).padStart(8, "0")}.png`;
               if (
                 !Number.isInteger(frame) ||
                 frame < job.startFrame ||

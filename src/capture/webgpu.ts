@@ -1,3 +1,4 @@
+import { packWebGPURows } from "./readback.js";
 import { RenderTarget, WebGPURenderer } from "three/webgpu";
 import {
   Scene,
@@ -92,10 +93,10 @@ export class WebGPUCaptureAdapter implements CaptureAdapter {
         settings.width,
         settings.height,
       );
-      const bytes = new Uint8Array(
-        pixels.buffer,
-        pixels.byteOffset,
-        pixels.byteLength,
+      const bytes = packWebGPURows(
+        new Uint8Array(pixels.buffer, pixels.byteOffset, pixels.byteLength),
+        settings.width,
+        settings.height,
       );
       // Three's output conversion premultiplies in output color space.
       for (let i = 0; i < bytes.length; i += 4) {

@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { WebGPURenderer, ClippingGroup } from "three/webgpu";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { VTKLoader } from "three/addons/loaders/VTKLoader.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { Workspace, themeFamilies, defaultShortcuts } from "quilt-vanilla";
 import { ThreeSession, CameraHelpers } from "quilt-three";
 import type { PaneContext } from "quilt-vanilla";
@@ -49,7 +49,7 @@ async function main() {
       reject(new Error("Could not load the keyframe editor"));
   });
   editorFrame.src = `${import.meta.env.BASE_URL}keyframes.html`;
-  document.body.append(editorFrame);
+  document.querySelector("#studio-workspace")!.append(editorFrame);
   await editorLoaded;
   const { studio, project, sheet, driver, animated, animatedCamera } = await (
     editorFrame.contentWindow as unknown as {
@@ -74,9 +74,11 @@ async function main() {
   orbitCamera.updateProjectionMatrix();
   orbitCamera.lookAt(0, 0, 0);
   const viewportCamera = camera.clone();
-  const geometry = await new VTKLoader().loadAsync(
-    `${import.meta.env.BASE_URL}models/bunny.vtk`,
+  const renderViewportCamera = camera.clone();
+  const bunnyAsset = await new GLTFLoader().loadAsync(
+    `${import.meta.env.BASE_URL}models/bunny.glb`,
   );
+  const geometry = (bunnyAsset.scene.children[0] as THREE.Mesh).geometry;
   geometry.computeBoundingBox();
   const size = geometry.boundingBox!.getSize(new THREE.Vector3());
   geometry.center();
@@ -182,7 +184,7 @@ async function main() {
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.domElement.className = "scene-canvas";
   const hosts = Object.fromEntries(
-    ["scene", "preview", "settings", "timeline"].map((key) => {
+    ["scene", "recording", "preview", "settings", "timeline"].map((key) => {
       const element = document.createElement("div");
       element.className = `pane-content ${key === "settings" ? "settings-host" : ""}`;
       return [key, element];
@@ -193,6 +195,9 @@ async function main() {
   note.className = "scene-note";
   note.textContent = "PERSPECTIVE / Orbit to compose";
   hosts.scene.append(note);
+  const renderNote = document.createElement("div");
+  renderNote.className = "scene-note";
+  hosts.recording.append(renderNote);
   const viewportControls = new Set<OrbitControls<THREE.Camera>>();
   let playing = false,
     exclusive = false,
@@ -244,7 +249,7 @@ async function main() {
         exclusive = true;
         playing = false;
         for (const controls of viewportControls) controls.enabled = false;
-        studio.ui.hide();
+        editorFrame.style.visibility = "hidden";
         scene.background = panel.getJob().transparent
           ? null
           : new THREE.Color("#262626");
@@ -268,15 +273,26 @@ async function main() {
         exclusive = false;
         for (const controls of viewportControls) controls.enabled = true;
         previous = performance.now();
-        if (studioVisible) studio.ui.restore();
         resize();
       },
     },
   });
   const destination = document.createElement("div");
   destination.className = "destination";
-  destination.innerHTML = `<label>Save as<select id="format"><option value="mp4">MP4 · preview + download</option><option value="frames">PNG sequence</option></select></label><div id="png-fields" hidden><label>PNG destination<select id="png-destination"><option value="folder">Folder</option><option value="receiver">Receiver URL</option></select></label><div id="folder-fields"><button id="pick-folder" type="button">Choose folder…</button><small id="folder-status" role="status">No folder selected</small></div></div><div id="receiver-fields" hidden><label>Receiver URL<input id="receiver-url" value="ws://127.0.0.1:8787"></label><label>Session token<input id="receiver-token" type="password" autocomplete="off" placeholder="Paste token from receiver terminal"></label><small>Run: npx three-recording-studio --directory ./recordings</small></div><button id="wide-preset">4K panoramic preset · 3:1</button>`;
-  hosts.settings.append(destination);
+  destination.innerHTML = `<label class="studio-outlined-field"><span>Save as</span><select id="format"><option value="mp4">MP4</option><option value="frames">PNG sequence</option></select></label><div id="png-fields" hidden><label class="studio-outlined-field"><span>PNG destination</span><select id="png-destination"><option value="folder">Folder</option><option value="receiver">Receiver URL</option></select></label><div id="folder-fields"><button id="pick-folder" type="button">Choose folder…</button><small id="folder-status" role="status">No folder selected</small></div></div><form id="receiver-fields" hidden><label>Receiver URL<input id="receiver-url" value="ws://127.0.0.1:8787"></label><label>Session token<input id="receiver-token" type="password" autocomplete="off" placeholder="Paste token from receiver terminal"></label><small>Run: npx three-recording-studio --directory ./recordings</small></form>`;
+  const settingsSection = (title: string, content: HTMLElement) => {
+    const section = document.createElement("details");
+    section.className = "trs-accordion";
+    section.open = true;
+    const summary = document.createElement("summary");
+    summary.textContent = title;
+    section.append(summary, content);
+    return section;
+  };
+
+  destination
+    .querySelector<HTMLFormElement>("#receiver-fields")!
+    .addEventListener("submit", (event) => event.preventDefault());
   const select = destination.querySelector<HTMLSelectElement>("#format")!;
   const pngDestination =
     destination.querySelector<HTMLSelectElement>("#png-destination")!;
@@ -365,7 +381,7 @@ async function main() {
     const channel = panel.channel;
     return new Mp4Destination({
       onComplete(blob) {
-        panel.addResult(blob, `${job.id}.mp4`, channel);
+        panel.addResult(blob, `${job.fileName ?? job.id}.mp4`, channel);
       },
     });
   };
@@ -383,6 +399,7 @@ async function main() {
     job: {
       id: "bunny-01",
       contentId: "bunny-v2",
+      transparent: true,
       width: 1280,
       height: 720,
       fps: 30,
@@ -392,6 +409,10 @@ async function main() {
     },
     destination: createDestination,
   });
+  const syncTransparency = () =>
+    panel.setTransparencySupported(select.value !== "mp4");
+  select.addEventListener("change", syncTransparency);
+  syncTransparency();
   const cameraSettings = new CameraViewSettings(
     scene,
     [camera, sideCamera],
@@ -401,17 +422,12 @@ async function main() {
   );
   const secondaryCamera = () =>
     renderCamera === sideCamera ? camera : sideCamera;
-  hosts.settings.prepend(cameraSettings.element);
-  hosts.scene.append(cameraSettings.overlay, cameraSettings.viewportToolbar);
-  destination.querySelector<HTMLButtonElement>("#wide-preset")!.onclick =
-    () => {
-      for (const [name, value] of [
-        ["width", "3840"],
-        ["height", "1280"],
-      ])
-        panel.element.querySelector<HTMLInputElement>(`[name=${name}]`)!.value =
-          value;
-    };
+  hosts.settings.prepend(
+    settingsSection("Camera and guides", cameraSettings.element),
+  );
+  hosts.scene.append(cameraSettings.viewportToolbar);
+  hosts.recording.append(cameraSettings.overlay);
+  panel.element.querySelector(".trs-accordion > summary")!.after(destination);
   hosts.timeline.innerHTML = `<div class="timeline"><div class="timeline-top"><span>Bunny / clipping plane + camera orbit</span><span>180 frames · 30 fps</span></div><div class="timeline-row"><div class="transport"><button id="play" aria-label="Play" title="Play"></button><output id="time">0.00s</output></div><div class="timeline-scrubber"><input id="scrub" aria-label="Animation time" type="range" min="0" max="6" step="0.0333333" value="0"><div class="timeline-ruler"><span>0s</span><span>1s</span><span>2s</span><span>3s</span><span>4s</span><span>5s</span><span>6s</span></div></div></div><div class="timeline-track"><i class="keyframe" style="left:0"></i><i class="keyframe" style="left:50%"></i><i class="keyframe" style="left:99%"></i></div></div>`;
   const scrub = hosts.timeline.querySelector<HTMLInputElement>("#scrub")!,
     timeOutput = hosts.timeline.querySelector<HTMLOutputElement>("#time")!,
@@ -441,6 +457,16 @@ async function main() {
     active: id,
     dedicatedPaneId: id,
   });
+  const liveViews = () => ({
+    kind: "split" as const,
+    id: "live-cameras",
+    axis: "vertical" as const,
+    ratio: 0.68,
+    children: [group("scene"), group("recording")] as [
+      ReturnType<typeof group>,
+      ReturnType<typeof group>,
+    ],
+  });
   const layout: Layout = {
     version: 1,
     panes: Object.fromEntries(
@@ -451,12 +477,14 @@ async function main() {
           type: id,
           icon: {
             scene: "canvas",
+            recording: "camera-helper",
             preview: "camera-helper",
             settings: "settings",
             timeline: "timeline",
           }[id],
           title: {
-            scene: "Scene viewport",
+            scene: "Secondary camera",
+            recording: "Render camera viewport",
             preview: "Render preview",
             settings: "Render settings",
             timeline: "Animation",
@@ -482,7 +510,7 @@ async function main() {
               id: "views",
               axis: "horizontal",
               ratio: 0.52,
-              children: [group("scene"), group("preview")],
+              children: [liveViews(), group("preview")],
             },
             group("timeline"),
           ],
@@ -512,7 +540,7 @@ async function main() {
     cameras: [camera, sideCamera],
     ray: "center",
     maxDistance: 12,
-    visibleIn: () => !cameraSettings.cameraView && cameraSettings.showHelper,
+    visibleIn: (viewCamera) => viewCamera === viewportCamera,
   });
   hosts.keyframes = document.createElement("div");
   hosts.keyframes.className = "pane-content keyframes-host";
@@ -534,6 +562,7 @@ async function main() {
       ...themeFamilies.neutral[preferredMode],
       fontSize: "11px",
       headerHeight: "32px",
+      cornerHandleDisplay: "none",
     },
     paneTypes: Object.fromEntries(
       Object.keys(hosts).map((id) => [
@@ -549,14 +578,15 @@ async function main() {
               : { ...(layout.panes[id] ?? editorPane) },
           render: (context: PaneContext) => {
             context.element.append(hosts[id]);
-            if (id !== "scene") return;
+            if (id !== "scene" && id !== "recording") return;
+            const recordingView = id === "recording";
             return viewportSession.register(
-              { ...context, element: hosts.scene },
+              { ...context, element: hosts[id] },
               {
-                camera: viewportCamera,
+                camera: recordingView ? renderViewportCamera : viewportCamera,
                 controls: ({ element }) => {
                   const controls = new OrbitControls<THREE.Camera>(
-                    renderCamera,
+                    recordingView ? renderCamera : secondaryCamera(),
                     element,
                   );
                   controls.target.set(0, 0, 0);
@@ -569,11 +599,11 @@ async function main() {
                       controls.enabled = value;
                     },
                     update() {
-                      controls.object = cameraSettings.cameraView
+                      controls.object = recordingView
                         ? renderCamera
-                        : orbitCamera;
+                        : secondaryCamera();
                       controls.enabled =
-                        !exclusive && (!playing || !cameraSettings.cameraView);
+                        !exclusive && (!playing || !recordingView);
                     },
                     dispose() {
                       viewportControls.delete(controls);
@@ -593,20 +623,28 @@ async function main() {
                       job.height,
                       job.cameraFit,
                     );
-                    const view = cameraSettings.update(
-                      fitted,
-                      width,
-                      height,
-                      job.width / job.height,
-                    );
+                    // WebGPU rebuilds projections when the coordinate system changes.
+                    // Do that before applying the preview frame's custom X/Y scale.
+                    fitted.coordinateSystem = viewportRenderer.coordinateSystem;
+                    if (
+                      fitted instanceof THREE.PerspectiveCamera ||
+                      fitted instanceof THREE.OrthographicCamera
+                    ) {
+                      fitted.updateProjectionMatrix();
+                    }
+                    const view = recordingView
+                      ? cameraSettings.update(
+                          fitted,
+                          width,
+                          height,
+                          job.width / job.height,
+                        )
+                      : undefined;
                     const observer = secondaryCamera().clone();
                     observer.aspect = width / height;
                     observer.updateProjectionMatrix();
 
-                    viewportRenderer.render(
-                      scene,
-                      cameraSettings.cameraView ? view : observer,
-                    );
+                    viewportRenderer.render(scene, view ?? observer);
                   },
                 }),
               },
@@ -627,7 +665,7 @@ async function main() {
         root: {
           kind: "group",
           id: "mobile-group",
-          panes: ["scene", "preview", "settings", "timeline"],
+          panes: ["scene", "recording", "preview", "settings", "timeline"],
           active: "scene",
         },
       });
@@ -658,42 +696,55 @@ async function main() {
   };
   const observer = new ResizeObserver(resize);
   observer.observe(hosts.scene);
+  observer.observe(hosts.recording);
   resize();
   const backend = document.querySelector<HTMLSelectElement>("#backend")!;
   backend.value = gpu ? "webgpu" : "webgl";
   backend.onchange = () => {
     location.search = `?backend=${backend.value}`;
   };
-  const workspacePicker =
-    document.querySelector<HTMLSelectElement>("#workspace-picker")!;
+  const workspaceButtons =
+    document.querySelectorAll<HTMLButtonElement>("[data-workspace]");
   let renderingLayout = workspace.exportLayout();
   const keyframeLayout: Layout = {
     version: 1,
-    panes: { scene: layout.panes.scene, keyframes: editorPane },
+    panes: {
+      scene: layout.panes.scene,
+      recording: layout.panes.recording,
+      keyframes: editorPane,
+    },
     root: {
       kind: "split",
       id: "keyframe-split",
       axis: "vertical",
       ratio: 0.38,
-      children: [group("scene"), group("keyframes")],
+      children: [{ ...liveViews(), axis: "horizontal" }, group("keyframes")],
     },
     popouts: [],
     maximized: null,
   };
   let editingLayout = keyframeLayout;
-  workspacePicker.onchange = () => {
-    const editing = workspacePicker.value === "keyframes";
+  const selectWorkspace = (editing: boolean) => {
     if (editing === studioVisible) return;
     playing = false;
     sheet.sequence.pause();
     if (editing) renderingLayout = workspace.exportLayout();
     else editingLayout = workspace.exportLayout();
     studioVisible = editing;
+    workspaceButtons.forEach((button) =>
+      button.setAttribute(
+        "aria-pressed",
+        String((button.dataset.workspace === "keyframes") === editing),
+      ),
+    );
     editorFrame.style.visibility = "hidden";
     workspace.loadLayout(editing ? editingLayout : renderingLayout);
-    editing ? studio.ui.restore() : studio.ui.hide();
     fitTimeline();
   };
+  workspaceButtons.forEach((button) => {
+    button.onclick = () =>
+      selectWorkspace(button.dataset.workspace === "keyframes");
+  });
   const positionEditor = () => {
     if (!studioVisible || exclusive || !hosts.keyframes.isConnected) {
       editorFrame.style.visibility = "hidden";
@@ -710,6 +761,10 @@ async function main() {
   };
   const themeButton = document.querySelector<HTMLButtonElement>("#theme")!;
   const applyTheme = (light: boolean) => {
+    editorFrame.contentDocument?.documentElement.classList.toggle(
+      "light",
+      light,
+    );
     document.body.classList.toggle("light", light);
     document.documentElement.classList.toggle("light", light);
     document.documentElement.classList.toggle("dark", !light);
@@ -720,7 +775,12 @@ async function main() {
     const icon = renderIcon(light ? "sun" : "moon", document)!;
     themeButton.querySelector(".theme-thumb")!.replaceChildren(icon);
     const theme = themeFamilies.neutral[light ? "light" : "dark"];
-    workspace.setTheme({ ...theme, fontSize: "11px", headerHeight: "32px" });
+    workspace.setTheme({
+      ...theme,
+      fontSize: "11px",
+      headerHeight: "32px",
+      cornerHandleDisplay: "none",
+    });
     panel.setTheme({
       "color-scheme": light ? "light" : "dark",
       background: theme.panel,
@@ -756,7 +816,10 @@ async function main() {
   fullscreen.onclick = async () => {
     try {
       if (document.fullscreenElement) await document.exitFullscreen();
-      else await document.documentElement.requestFullscreen();
+      else
+        await document
+          .querySelector<HTMLElement>("#studio-workspace")!
+          .requestFullscreen();
     } catch (error) {
       document.querySelector("#app-status")!.textContent =
         `Fullscreen unavailable: ${String(error)}`;
@@ -776,7 +839,9 @@ async function main() {
     scrub.disabled = busy;
     play.disabled = busy;
     backend.disabled = busy;
-    workspacePicker.disabled = busy;
+    workspaceButtons.forEach((button) => {
+      button.disabled = busy;
+    });
     document.querySelector("#app-status")!.textContent =
       `${gpu ? "WebGPU" : "WebGL"} · ${progress.state} · ${progress.completed}/${progress.total}`;
   });
@@ -795,15 +860,12 @@ async function main() {
         cameraHelpers.setCameraVisible(source, source !== secondaryCamera());
       viewportSession.render(now);
       const job = panel.getJob();
-      note.textContent = cameraSettings.cameraView
-        ? `${renderCamera.name || renderCamera.type} · ${job.width} × ${job.height}`
-        : "Secondary camera · drag to navigate";
+      note.textContent = "Secondary camera · drag to navigate";
+      renderNote.textContent = `${renderCamera.name || renderCamera.type} · ${job.width} × ${job.height}`;
     }
     previous = now;
   }
   raf = requestAnimationFrame(tick);
-  // Preview a still using the same export pipeline. Exports are unavailable until this finishes.
-  await session.preview(panel.getJob());
   Object.assign(window, {
     trsDemo: {
       session,

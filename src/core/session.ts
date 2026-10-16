@@ -17,6 +17,8 @@ export function validateJob(job: RenderJob): void {
     throw new Error("FPS must be between 0 and 240");
   if (job.endFrame < job.startFrame)
     throw new Error("End frame precedes start frame");
+  if (job.fileName !== undefined && !/^[a-zA-Z0-9_-]{1,80}$/.test(job.fileName))
+    throw new Error("Invalid file name");
   if (!/^[a-zA-Z0-9_-]{1,80}$/.test(job.id) || !job.contentId.trim())
     throw new Error("Supply a safe job ID and nonempty contentId");
   if (

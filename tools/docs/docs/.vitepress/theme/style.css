@@ -1,0 +1,4 @@
+/* Keep the homepage footer continuous with the page background. */
+.VPFooter {
+  border-top: 0 !important;
+}

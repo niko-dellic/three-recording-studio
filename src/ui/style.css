@@ -89,12 +89,6 @@
   margin: 18px 0 12px;
   flex-wrap: wrap;
 }
-.trs-actions button:first-child {
-  background: var(--trs-accent);
-  color: var(--trs-background);
-  border-color: transparent;
-  font-weight: 650;
-}
 .trs-panel progress {
   display: block;
   width: 100%;
@@ -202,20 +196,33 @@
 .trs-panel progress::-moz-progress-bar {
   background: var(--trs-accent);
 }
-.trs-slot-tools {
+.trs-floating-toolbars {
   position: absolute;
   top: 10px;
   left: 12px;
-  width: fit-content;
-  max-width: calc(100% - 24px);
+  right: 12px;
   z-index: 2;
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px;
+  pointer-events: none;
+}
+.trs-slot-tools,
+.trs-floating-toolbars > .trs-preview-tools {
+  width: fit-content;
+  max-width: 100%;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  padding: 6px;
-  background: var(--trs-surface);
-  border: 1px solid var(--trs-border);
-  border-radius: var(--trs-toolbar-radius, 6px);
+  padding: 7px 0 0;
+  background: transparent;
+  border: 0;
+  pointer-events: auto;
+}
+.trs-floating-toolbars > .trs-preview-tools {
+  margin-left: auto;
 }
 .trs-slot-tools select {
   min-width: 0;
@@ -225,11 +232,6 @@
 }
 .trs-slot-tools {
   align-items: center;
-}
-.trs-slot-tools > .trs-preview-tools {
-  padding: 0;
-  border: 0;
-  flex: 1 0 auto;
 }
 .trs-preview-tools {
   flex-wrap: wrap;
@@ -285,4 +287,257 @@
   pointer-events: none;
   z-index: 10000;
   white-space: nowrap;
+}
+
+/* Label interrupts the outline, as in Quilt's settings fields. */
+.trs-panel .trs-outlined-field {
+  position: relative;
+  display: block;
+  min-width: 0;
+  margin-top: 5px;
+}
+.trs-outlined-field > span {
+  position: absolute;
+  z-index: 1;
+  top: -7px;
+  left: 9px;
+  padding: 0 4px;
+  background: transparent;
+  color: var(--trs-muted);
+  font-size: 10px;
+  line-height: 14px;
+  pointer-events: none;
+}
+.trs-panel .trs-outlined-field > :is(select, input) {
+  background: var(--trs-background);
+  padding: 7px 12px 5px;
+}
+.trs-panel select {
+  appearance: none;
+  -webkit-appearance: none;
+}
+.trs-slot-tools > .trs-outlined-field {
+  flex: 0 1 150px;
+  width: 150px;
+}
+
+.trs-accordion {
+  border-bottom: 1px solid var(--trs-border);
+}
+.trs-accordion > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  margin: 0;
+  padding: 12px;
+  color: var(--trs-text);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.trs-accordion > summary::-webkit-details-marker {
+  display: none;
+}
+.trs-accordion > summary::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  margin-left: auto;
+  border-right: 1px solid var(--trs-muted);
+  border-bottom: 1px solid var(--trs-muted);
+  transform: rotate(45deg);
+}
+.trs-accordion[open] > summary::after {
+  transform: rotate(225deg);
+}
+.trs-accordion > summary:focus-visible {
+  outline: 2px solid var(--trs-accent);
+  outline-offset: -3px;
+}
+.trs-accordion > .trs-controls,
+.trs-accordion-content {
+  padding: 4px 12px 12px;
+}
+.trs-accordion-content .trs-actions {
+  margin-top: 0;
+}
+.trs-panel:has(> .trs-accordion) {
+  padding: 0;
+}
+.trs-accordion .trs-header strong {
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+.trs-panel .trs-template {
+  margin: 8px 12px 16px;
+}
+.trs-template select {
+  width: 100%;
+  min-width: 0;
+}
+
+/* Reserve label space on the group, not on an individual control. */
+.trs-slot-tools > .trs-outlined-field {
+  margin-top: 0;
+}
+.trs-slot-tools :is(select, button),
+.trs-preview-tools button {
+  height: var(--trs-control-height);
+  min-height: var(--trs-control-height);
+}
+
+/* Joined zoom controls, with the percentage as the final text segment. */
+.trs-floating-toolbars > .trs-preview-tools {
+  gap: 0;
+  flex-wrap: nowrap;
+}
+.trs-preview-tools > :is(button, .trs-zoom) {
+  position: relative;
+  margin: 0;
+  height: var(--trs-control-height);
+  min-height: var(--trs-control-height);
+  border: 1px solid var(--trs-border);
+  border-radius: 0;
+  background: var(--trs-background);
+}
+.trs-preview-tools > :not(:first-child) {
+  margin-left: -1px;
+}
+.trs-preview-tools > :first-child {
+  border-radius: var(--trs-radius) 0 0 var(--trs-radius);
+}
+.trs-preview-tools > :last-child {
+  border-radius: 0 var(--trs-radius) var(--trs-radius) 0;
+}
+.trs-preview-tools > .trs-zoom {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  min-width: 8ch;
+}
+.trs-preview-tools > button:is(:hover, :focus-visible) {
+  z-index: 1;
+}
+
+.trs-orientation {
+  display: flex;
+  margin: 0 12px 16px;
+}
+.trs-orientation > button {
+  flex: 1;
+  border-radius: 0;
+  background: var(--trs-background);
+}
+.trs-orientation > button:first-child {
+  border-radius: var(--trs-radius) 0 0 var(--trs-radius);
+}
+.trs-orientation > button:last-child {
+  margin-left: -1px;
+  border-radius: 0 var(--trs-radius) var(--trs-radius) 0;
+}
+.trs-orientation > button[aria-pressed="true"] {
+  background: var(--trs-accent);
+  color: var(--trs-background);
+  border-color: var(--trs-accent);
+  position: relative;
+}
+.trs-orientation > button:focus-visible {
+  position: relative;
+  z-index: 1;
+}
+
+.trs-controls label.trs-checkbox-field {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.trs-controls .trs-checkbox-field input[type="checkbox"] {
+  min-height: 0;
+  height: 18px;
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.trs-frame-range {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(70px, 1fr) 72px 72px;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+  padding: 8px 0 0;
+  border: 0;
+}
+.trs-frame-range legend {
+  padding: 0;
+  color: var(--trs-muted);
+}
+.trs-range-track {
+  position: relative;
+  height: 32px;
+  background: linear-gradient(
+      to right,
+      var(--trs-border) var(--range-start),
+      var(--trs-accent) var(--range-start),
+      var(--trs-accent) var(--range-end),
+      var(--trs-border) var(--range-end)
+    )
+    center / 100% 4px no-repeat;
+}
+.trs-panel .trs-range-track input {
+  appearance: none;
+  -webkit-appearance: none;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 32px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  pointer-events: none;
+}
+.trs-range-track input::-webkit-slider-thumb {
+  appearance: none;
+  width: 12px;
+  height: 22px;
+  border-radius: 4px;
+  background: var(--trs-accent);
+  cursor: ew-resize;
+  pointer-events: auto;
+}
+.trs-range-track input::-moz-range-thumb {
+  width: 12px;
+  height: 22px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--trs-accent);
+  cursor: ew-resize;
+  pointer-events: auto;
+}
+.trs-range-track input:disabled {
+  opacity: 0.45;
+}
+@media (max-width: 480px) {
+  .trs-frame-range {
+    grid-template-columns: minmax(50px, 1fr) 64px 64px;
+    gap: 6px;
+  }
+}
+
+.trs-dimensions {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--trs-space);
+}
+.trs-checkbox-field:has(input:disabled) {
+  opacity: 0.45;
 }

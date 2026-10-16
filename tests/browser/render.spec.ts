@@ -404,7 +404,7 @@ test("still renders replace their channel and preserve other channels without au
     .poll(() => image.evaluate((e: HTMLImageElement) => e.naturalWidth))
     .toBe(320);
   const first = await image.getAttribute("src");
-  await page.getByRole("button", { name: "New channel" }).click();
+  await page.getByLabel("Render channel", { exact: true }).selectOption("new");
   await page.getByRole("button", { name: "Render image", exact: true }).click();
   await expect(image).toBeVisible();
   expect(await image.getAttribute("src")).not.toBe(first);
@@ -693,7 +693,9 @@ test("camera frame follows output aspect and camera selection", async ({
 }) => {
   await page.goto("/demo/");
   await page.waitForFunction(() => !!(window as any).trsDemo);
-  await page.getByRole("button", { name: /4K panoramic preset/ }).click();
+  await page
+    .getByLabel("Output template", { exact: true })
+    .selectOption("3840x1280");
   const frame = page.locator(".camera-frame");
   await expect
     .poll(async () => {
@@ -711,9 +713,7 @@ test("camera frame follows output aspect and camera selection", async ({
   await expect
     .poll(() => page.evaluate(() => (window as any).trsDemo.renderCamera.name))
     .toBe("Side camera");
-  await page.getByLabel("Viewport", { exact: true }).selectOption("orbit");
-  await expect(page.locator(".camera-overlay")).toBeHidden();
-  await page.getByLabel("Viewport", { exact: true }).selectOption("camera");
+  await expect(page.locator(".camera-overlay")).toBeVisible();
   await expect(frame).toBeVisible();
   const result = await page.evaluate(async () => {
     const demo = (window as any).trsDemo;
@@ -734,8 +734,8 @@ test("viewport navigation persists while paused and scrubbing restores the recor
   const initial = await pose();
   const viewport = page
     .locator(".pane-content")
-    .filter({ has: page.locator(".scene-note") });
-  const rect = (await viewport.boundingBox())!;
+    .filter({ has: page.locator(".camera-overlay") });
+  let rect = (await viewport.boundingBox())!;
   await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2);
   await page.mouse.down();
   await page.mouse.move(
@@ -762,7 +762,9 @@ test("viewport navigation persists while paused and scrubbing restores the recor
   const keyed = await pose();
   expect(keyed[0]).toBeCloseTo(-initial[0], 2);
   expect(keyed[2]).toBeCloseTo(-initial[2], 2);
-  await page.getByLabel("Viewport", { exact: true }).selectOption("orbit");
+  rect = (await page
+    .getByRole("tabpanel", { name: "Secondary camera", exact: true })
+    .boundingBox())!;
   const observerBefore = await page.evaluate(() =>
     (window as any).trsDemo.orbitCamera.position.toArray(),
   );
@@ -796,13 +798,48 @@ test("keyframes workspace contains Theatre and shares edits with rendering", asy
   const initial = await page.evaluate(() =>
     (window as any).trsDemo.camera.position.toArray(),
   );
-  await page.getByLabel("Workspace", { exact: true }).selectOption("keyframes");
+  await page.getByRole("button", { name: "Keyframes", exact: true }).click();
   const editor = page.locator('iframe[title="Keyframe editor"]');
   await expect(editor).toBeVisible();
   const box = (await editor.boundingBox())!;
   const pane = (await page.locator(".keyframes-host").boundingBox())!;
   expect(Math.abs(box.y - pane.y)).toBeLessThan(2);
   expect(Math.abs(box.height - pane.height)).toBeLessThan(2);
+  const frame = page
+    .frames()
+    .find((frame) => frame.url().includes("keyframes.html"))!;
+  const timeline = frame.locator(".sc-bOhtcR");
+  const before = (await timeline.boundingBox())!;
+  expect(
+    Math.abs(before.x - (pane.x + Math.floor(pane.width * 0.22))),
+  ).toBeLessThan(2);
+  expect(Math.abs(before.y - pane.y)).toBeLessThan(2);
+  expect(Math.abs(before.width - pane.width * 0.78)).toBeLessThan(2);
+  const layers = (await frame.locator(".sc-djVXDX").boundingBox())!;
+  expect(layers.x + layers.width).toBeLessThan(before.x);
+  expect(layers.y).toBeLessThan(before.y + 60);
+  expect(
+    Math.abs(before.y + before.height - (pane.y + pane.height)),
+  ).toBeLessThan(3);
+  await page.mouse.move(before.x + 100, before.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(before.x + 180, before.y + 60, { steps: 8 });
+  await page.mouse.up();
+  expect(await timeline.boundingBox()).toEqual(before);
+  await expect(
+    frame.locator(".sc-bOhtcR > [style*='cursor:'][style*='resize']").first(),
+  ).toBeHidden();
+  await page.getByRole("switch", { name: "Dark mode" }).click();
+  expect(
+    await frame
+      .locator("html")
+      .evaluate((element) => element.classList.contains("light")),
+  ).toBe(
+    await page
+      .locator("html")
+      .evaluate((element) => element.classList.contains("light")),
+  );
+
   await page.evaluate(() => {
     const { studio, animatedCamera, sheet } = (window as any).trsDemo
       .animationRuntime;
@@ -814,7 +851,7 @@ test("keyframes workspace contains Theatre and shares edits with rendering", asy
       page.evaluate(() => (window as any).trsDemo.camera.position.toArray()),
     )
     .not.toEqual(initial);
-  await page.getByLabel("Workspace", { exact: true }).selectOption("rendering");
+  await page.getByRole("button", { name: "Rendering", exact: true }).click();
   await expect(editor).toBeHidden();
   await expect(page.getByLabel("Render camera", { exact: true })).toBeVisible();
   expect(
@@ -822,11 +859,154 @@ test("keyframes workspace contains Theatre and shares edits with rendering", asy
       () => (window as any).trsDemo.animationRuntime.animatedCamera.value.angle,
     ),
   ).toBeCloseTo(1);
-  await page.getByLabel("Workspace", { exact: true }).selectOption("keyframes");
+  await page.getByRole("button", { name: "Keyframes", exact: true }).click();
   await expect(editor).toBeVisible();
   expect(
     await page.evaluate(
       () => (window as any).trsDemo.animationRuntime.animatedCamera.value.angle,
     ),
   ).toBeCloseTo(1);
+});
+
+test("two live camera views navigate independently and follow scrubbing", async ({
+  page,
+}) => {
+  await page.goto("/demo/");
+  await page.waitForFunction(() => !!(window as any).trsDemo);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as any).trsDemo.viewportSession.getViews().length,
+      ),
+    )
+    .toBe(2);
+  const secondary = page.locator(".pane-content").filter({
+    has: page.locator(".scene-note", { hasText: "Secondary camera" }),
+  });
+  const recording = page
+    .locator(".pane-content")
+    .filter({ has: page.locator(".camera-overlay") });
+  const large = (await secondary.boundingBox())!;
+  const small = (await recording.boundingBox())!;
+  expect(large.height).toBeGreaterThan(small.height);
+  const before = await page.evaluate(() => ({
+    secondary: (window as any).trsDemo.orbitCamera.position.toArray(),
+    recording: (window as any).trsDemo.camera.position.toArray(),
+  }));
+  await page.mouse.move(large.x + large.width / 2, large.y + large.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(
+    large.x + large.width / 2 + 70,
+    large.y + large.height / 2 + 30,
+    { steps: 8 },
+  );
+  await page.mouse.up();
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (window as any).trsDemo.orbitCamera.position.toArray(),
+      ),
+    )
+    .not.toEqual(before.secondary);
+  expect(
+    await page.evaluate(() =>
+      (window as any).trsDemo.camera.position.toArray(),
+    ),
+  ).toEqual(before.recording);
+  await page
+    .getByLabel("Animation time")
+    .evaluate((element: HTMLInputElement) => {
+      element.value = "3";
+      element.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  await expect
+    .poll(() =>
+      page.evaluate(() => (window as any).trsDemo.camera.position.toArray()),
+    )
+    .not.toEqual(before.recording);
+  await page.getByRole("button", { name: "Keyframes", exact: true }).click();
+  await expect(recording).toBeVisible();
+  await expect(secondary).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as any).trsDemo.viewportSession.getViews().length,
+      ),
+    )
+    .toBe(2);
+});
+
+test("WebGPU preserves the render viewport frame projection", async ({
+  page,
+}) => {
+  await page.goto("/demo/?backend=webgpu");
+  await page.waitForFunction(() => !!(window as any).trsDemo);
+  const result = await page.evaluate(async () => {
+    const demo = (window as any).trsDemo;
+    const views = demo.viewportSession.getViews();
+    await Promise.all(views.map((view: any) => view.ready));
+    const renderer = views[0].surface.renderer;
+    const original = renderer.render;
+    const captures: any[] = [];
+    renderer.render = function (scene: any, camera: any) {
+      const before = camera.projectionMatrix.elements.slice();
+      const system = camera.coordinateSystem;
+      const result = original.call(this, scene, camera);
+      captures.push({
+        before,
+        after: camera.projectionMatrix.elements.slice(),
+        system,
+        rendererSystem: this.coordinateSystem,
+      });
+      return result;
+    };
+    try {
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      );
+    } finally {
+      renderer.render = original;
+    }
+    return captures;
+  });
+  expect(result.length).toBeGreaterThanOrEqual(2);
+  for (const capture of result) {
+    // Both observer and recording views must preserve projection X/Y scaling.
+    for (const index of [0, 4, 8, 12, 1, 5, 9, 13]) {
+      expect(capture.after[index]).toBeCloseTo(capture.before[index], 10);
+    }
+  }
+});
+
+test("WebGPU portrait PNG captures exclude GPU row padding", async ({
+  page,
+}) => {
+  await page.goto("/demo/?backend=webgpu");
+  await page.waitForFunction(() => !!(window as any).trsDemo);
+  for (const [width, height] of [
+    [720, 1280],
+    [1080, 1920],
+  ]) {
+    await page.locator('input[name="width"]').fill(String(width));
+    await page.locator('input[name="height"]').fill(String(height));
+    await page
+      .getByRole("button", { name: "Render image", exact: true })
+      .click();
+    await expect(
+      page.getByRole("button", { name: "Download", exact: true }),
+    ).toBeEnabled({ timeout: 30000 });
+    const image = page.getByAltText("Saved render");
+    await expect(image).toBeVisible();
+    await expect
+      .poll(() =>
+        image.evaluate((element: HTMLImageElement) => [
+          element.naturalWidth,
+          element.naturalHeight,
+        ]),
+      )
+      .toEqual([width, height]);
+    await page
+      .getByRole("button", { name: "Delete render", exact: true })
+      .click();
+  }
 });

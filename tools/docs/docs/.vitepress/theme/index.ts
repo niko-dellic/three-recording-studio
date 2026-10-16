@@ -1,5 +1,6 @@
 import DefaultTheme from "vitepress/theme";
 import "@nikodellic/publisher-docs/style.css";
+import "./style.css";
 import { onMounted, nextTick } from "vue";
 export default {
   extends: DefaultTheme,

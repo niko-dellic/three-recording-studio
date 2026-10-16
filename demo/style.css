@@ -40,7 +40,7 @@ html.light body {
   align-items: center;
   justify-content: space-between;
   padding: 16px 30px;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 0;
   gap: 20px;
 }
 .brand {
@@ -418,7 +418,7 @@ body:has(.layouts-companion) {
   display: block;
   min-height: 64px;
   padding: 0 32px;
-  border-bottom: 1px solid var(--surface);
+  border-bottom: 0;
 }
 .site-header-inner {
   height: 64px;
@@ -586,10 +586,11 @@ img.brand-mark {
 .pane-content:has(> .trs-preview) {
   padding-top: var(--layouts-tab-bar-height, 0px);
 }
-.trs-slot-tools {
+.trs-slot-tools,
+.trs-floating-toolbars > .trs-preview-tools {
   --trs-toolbar-radius: var(--layouts-radius, 6px);
-  background: var(--layouts-header, var(--trs-surface));
-  border-color: var(--layouts-line, var(--trs-border));
+  background: transparent;
+  border: 0;
 }
 .viewport-toolbar label {
   color: var(--layouts-muted, var(--muted));
@@ -597,7 +598,8 @@ img.brand-mark {
 }
 .viewport-toolbar select,
 .trs-slot-tools select,
-.trs-slot-tools button {
+.trs-slot-tools button,
+.trs-preview-tools button {
   height: 32px;
   min-height: 32px;
   box-sizing: border-box;
@@ -622,10 +624,143 @@ img.brand-mark {
   padding: 0 10px;
 }
 .viewport-toolbar select:focus-visible,
-.trs-slot-tools :is(button, select):focus-visible {
+.trs-slot-tools :is(button, select):focus-visible,
+.trs-preview-tools button:focus-visible {
   outline: 2px solid var(--layouts-accent, var(--accent));
   outline-offset: 2px;
 }
 
 /* Native controls must inherit the workspace accent instead of browser blue. */
-.pane-content { accent-color: var(--layouts-accent, var(--accent)); }
+.pane-content {
+  accent-color: var(--layouts-accent, var(--accent));
+}
+
+/* Workspace chrome follows Quilt's compact workspace bar. */
+.studio-toolbar {
+  margin: 8px 14px 0;
+  padding: 6px 10px;
+  min-height: 40px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 5px 5px 0 0;
+  flex-wrap: wrap;
+}
+.workspace-title {
+  margin-right: auto;
+  font-size: 12px;
+}
+.workspace-title span {
+  margin: 0 12px;
+  color: var(--muted);
+}
+.workspace-buttons {
+  display: flex;
+  gap: 4px;
+}
+.studio-toolbar button[aria-pressed="true"] {
+  background: var(--line);
+}
+.studio-toolbar #fullscreen {
+  border-color: transparent;
+  background: transparent;
+}
+
+/* Match Quilt's pane-colored fields and inset labels. */
+.studio-outlined-field,
+.viewport-toolbar label.studio-outlined-field {
+  display: block;
+  position: relative;
+  min-width: 0;
+  margin-top: 5px;
+  padding: 0;
+}
+.studio-outlined-field > span {
+  position: absolute;
+  z-index: 1;
+  top: -7px;
+  left: 9px;
+  padding: 0 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 14px;
+  pointer-events: none;
+}
+.studio-outlined-field > select {
+  appearance: none;
+  -webkit-appearance: none;
+  background: var(--panel);
+  padding: 7px 12px 5px;
+  min-height: 34px;
+}
+.viewport-toolbar label.studio-outlined-field {
+  display: inline-block;
+  width: fit-content;
+  padding: 0;
+  margin-top: 7px;
+  border: 0;
+  background: transparent;
+}
+.viewport-toolbar .studio-outlined-field > span {
+  top: -7px;
+  left: 9px;
+}
+
+.settings-host {
+  --trs-border: var(--line);
+  --trs-text: var(--text);
+  --trs-muted: var(--muted);
+  --trs-accent: var(--accent);
+}
+.settings-host > .trs-accordion {
+  font-size: 12px;
+}
+.settings-host .trs-accordion > .destination {
+  border-bottom: 0;
+  padding-top: 4px;
+}
+
+.viewport-toolbar .studio-outlined-field > select {
+  height: 32px;
+  min-height: 32px;
+}
+
+.viewport-toolbar {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.viewport-toolbar #backend {
+  width: 100px;
+}
+
+/* The toolbar and pane layout form one fullscreen surface. */
+#studio-workspace {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  margin: 8px 14px 0;
+  background: var(--panel);
+}
+#studio-workspace > .studio-toolbar {
+  margin: 0;
+  flex-shrink: 0;
+}
+#studio-workspace > #workspace {
+  margin: 0;
+  border-top: 0;
+  border-radius: 0 0 5px 5px;
+  box-shadow: none;
+}
+#studio-workspace:fullscreen {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+}
+@media (max-width: 900px) {
+  #studio-workspace {
+    margin: 8px 8px 0;
+  }
+}

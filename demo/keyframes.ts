@@ -1,10 +1,12 @@
 import { getProject, createRafDriver } from "@theatre/core";
 import studio from "@theatre/studio";
+import { dockTheatre } from "./theatre-dock";
 import { animationState } from "./animation";
 
 async function createAnimationRuntime() {
   studio.initialize();
-  studio.ui.hide();
+  // The parent iframe controls visibility, so Theatre itself stays restored.
+  studio.ui.restore();
   const project = getProject("Three Recording Bunny Cameras", {
     state: animationState,
   });
@@ -14,6 +16,7 @@ async function createAnimationRuntime() {
   const animated = sheet.object("Clipping plane", { height: 1.35 });
   const animatedCamera = sheet.object("Recording camera", { angle: 0 });
   studio.setSelection([animatedCamera]);
+  await dockTheatre();
   return { studio, project, sheet, driver, animated, animatedCamera };
 }
 export type AnimationRuntime = Awaited<

@@ -19,7 +19,7 @@ export class DirectoryDestination implements RenderDestination {
     this.job = { ...job };
     this.completed = [];
     this.output = await this.directory.getDirectoryHandle(
-      `${job.id}-${crypto.randomUUID()}`,
+      `${job.fileName ?? job.id}-${crypto.randomUUID()}`,
       { create: true },
     );
     await this.manifest("rendering");
@@ -50,7 +50,10 @@ export class DirectoryDestination implements RenderDestination {
     this.signal!.throwIfAborted();
     const blob = await pngBlob(frame);
     this.signal!.throwIfAborted();
-    await this.save(`${String(context.frame).padStart(6, "0")}.png`, blob);
+    await this.save(
+      `${this.job!.fileName ? this.job!.fileName + "-" : ""}${String(context.frame).padStart(6, "0")}.png`,
+      blob,
+    );
     this.completed.push(context.frame);
     await this.manifest("rendering");
   }

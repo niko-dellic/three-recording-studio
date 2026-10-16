@@ -33,7 +33,7 @@ The panel can be embedded or float within the page. The floating panel can be dr
 
 Fit shows the entire image. 100% maps one output pixel to one physical display pixel using the current device pixel ratio. Wheel zoom is anchored under the cursor. Drag pans the image. With preview focused, use arrows to pan, plus/minus to zoom, and zero to fit.
 
-Preview navigation never modifies the camera or the saved image. Use **Preview frame** to evaluate `currentFrame()` (or the first frame of the selected range when no callback is supplied) through the exact export pipeline. The displayed image is the last captured frame, not an independent realtime approximation.
+Preview navigation never modifies the camera or the saved image. Use **Render image** to capture `currentFrame()` (or the first frame of the selected range when no callback is supplied) as a PNG in the selected channel. The image is available to view and download. Before rendering, the preview shows an output-frame outline that updates when the output dimensions change.
 
 ## Lifecycle
 

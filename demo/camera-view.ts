@@ -1,10 +1,10 @@
+import { setupTooltips } from "../src/ui/tooltip";
 import { Camera, Scene, PerspectiveCamera, OrthographicCamera } from "three";
 
 /** Accept scene cameras and application-owned cameras (including Quilt view cameras). */
 export class CameraViewSettings {
   readonly element = document.createElement("div");
   readonly viewportToolbar = document.createElement("div");
-  private readonly viewportSelect: HTMLSelectElement;
   readonly overlay = document.createElement("div");
   private select: HTMLSelectElement;
   private cameras: Camera[] = [];
@@ -14,15 +14,14 @@ export class CameraViewSettings {
     private onSelect: (camera: Camera) => void,
   ) {
     this.element.className = "destination camera-settings";
-    this.element.innerHTML = `<label>Render camera<select aria-label="Render camera"></select></label>
+    this.element.innerHTML = `<label class="studio-outlined-field"><span>Render camera</span><select aria-label="Render camera"></select></label>
       <label><input type="checkbox" data-frame checked> Render frame</label>
-      <label><input type="checkbox" data-safe> Safe areas (90% / 80%)</label>
-      <label>Composition guides<select data-guides aria-label="Composition guides"><option value="none">None</option><option value="thirds">Rule of thirds</option><option value="center">Center</option><option value="diagonals">Diagonals</option><option value="golden">Golden ratio</option></select></label>
-      <label>Outside frame tint<input data-tint aria-label="Outside frame tint" type="range" min="0" max="1" step="0.05" value="0.7"></label>
-      <label><input type="checkbox" data-helper checked> Camera helpers in secondary view</label>`;
+      <label><input type="checkbox" data-safe checked> Safe areas (90% / 80%)</label>
+      <label class="studio-outlined-field"><span>Composition guides</span><select data-guides aria-label="Composition guides"><option value="none">None</option><option value="thirds">Rule of thirds</option><option value="center">Center</option><option value="diagonals">Diagonals</option><option value="golden">Golden ratio</option></select></label>
+      <label>Outside frame tint<input data-tint aria-label="Outside frame tint" type="range" min="0" max="1" step="0.05" value="0.7"></label>`;
     this.viewportToolbar.className = "viewport-toolbar";
-    this.viewportToolbar.innerHTML = `<label>Viewport<select aria-label="Viewport"><option value="camera">Recording camera</option><option value="orbit">Secondary camera</option></select></label>`;
-    this.viewportSelect = this.viewportToolbar.querySelector("select")!;
+    this.viewportToolbar.innerHTML = `<label class="studio-outlined-field"><select id="backend" aria-label="Renderer"><option value="webgl">WebGL</option><option value="webgpu">WebGPU</option></select></label>`;
+    setupTooltips(this.viewportToolbar, "select");
     for (const event of ["pointerdown", "wheel", "keydown"]) {
       this.viewportToolbar.addEventListener(event, (e) => e.stopPropagation());
     }
@@ -38,14 +37,7 @@ export class CameraViewSettings {
   private input<T extends HTMLElement>(key: string) {
     return this.element.querySelector<T>(`[data-${key}]`)!;
   }
-  get cameraView() {
-    return this.viewportSelect.value === "camera";
-  }
-  get showHelper() {
-    return this.input<HTMLInputElement>("helper").checked;
-  }
   setDisabled(disabled: boolean) {
-    this.viewportSelect.disabled = disabled;
     this.element
       .querySelectorAll<HTMLInputElement>("input,select")
       .forEach((input) => (input.disabled = disabled));
@@ -85,7 +77,7 @@ export class CameraViewSettings {
     height: number,
     aspect: number,
   ): Camera {
-    this.overlay.hidden = !this.cameraView;
+    this.overlay.hidden = false;
     const frameWidth = Math.min(width * 0.9, height * 0.9 * aspect);
     const frameHeight = frameWidth / aspect;
     const frame = this.overlay.firstElementChild as HTMLElement;

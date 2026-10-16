@@ -10,6 +10,8 @@ export interface RenderSettings {
 }
 export interface RenderJob extends RenderSettings {
   id: string;
+  /** Output filename prefix, separate from the internal job identity. */
+  fileName?: string;
   contentId: string;
 }
 export interface FrameContext {

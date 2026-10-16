@@ -1,3 +1,4 @@
+import { setupTooltips } from "./tooltip.js";
 import { RenderSession } from "../core/session.js";
 import type {
   CapturedFrame,
@@ -39,8 +40,10 @@ export interface RenderPanelOptions {
   theme?: RenderTheme;
   icons?: Partial<
     Record<
+      | "renderImage"
       | "render"
       | "pause"
+      | "resume"
       | "cancel"
       | "actualSize"
       | "fit"
@@ -59,12 +62,12 @@ export class RenderPanel {
   readonly element: HTMLElement;
   readonly previewElement: HTMLElement;
   private canvas: HTMLCanvasElement;
+  private outputFrame: HTMLDivElement;
   private viewport: HTMLElement;
   private controls: HTMLFormElement;
   private status: HTMLElement;
   private bar: HTMLProgressElement;
   private renderButton: HTMLButtonElement;
-  private previewButton: HTMLButtonElement;
   private pauseButton: HTMLButtonElement;
   private cancelButton: HTMLButtonElement;
   private fields = new Map<string, HTMLInputElement | HTMLSelectElement>();
@@ -81,8 +84,8 @@ export class RenderPanel {
   private image: HTMLImageElement;
   private channels: HTMLSelectElement;
   private downloadButton: HTMLButtonElement;
-  private newChannelButton: HTMLButtonElement;
   private stillButton: HTMLButtonElement;
+  private deleteButton: HTMLButtonElement;
   private artifacts: Array<{
     channel: string;
     url: string;
@@ -90,6 +93,9 @@ export class RenderPanel {
     type: string;
   }> = [];
   private operation = false;
+  private jobId = crypto.randomUUID();
+  private transparencySupported = true;
+  private preferredTransparency = true;
   constructor(private readonly options: RenderPanelOptions) {
     const doc = options.container.ownerDocument;
     this.element = doc.createElement("section");
@@ -97,7 +103,7 @@ export class RenderPanel {
     this.element.setAttribute("aria-label", "Render settings");
     this.mode = options.mode ?? "embedded";
     this.element.dataset.mode = this.mode;
-    const heading = doc.createElement("header");
+    const heading = doc.createElement("summary");
     heading.className = "trs-header";
     const title = doc.createElement("strong");
     title.textContent = "Render output";
@@ -113,8 +119,12 @@ export class RenderPanel {
     this.field("width", "Width", options.job.width);
     this.field("height", "Height", options.job.height);
     this.field("fps", "Frames / second", options.job.fps);
-    this.field("startFrame", "First frame", options.job.startFrame);
-    this.field("endFrame", "Last frame", options.job.endFrame);
+    const dimensions = doc.createElement("div");
+    dimensions.className = "trs-dimensions";
+    for (const name of ["width", "height", "fps"])
+      dimensions.append(this.fields.get(name)!.parentElement!);
+    this.controls.append(dimensions);
+    this.frameRange(options.job.startFrame, options.job.endFrame);
     this.select(
       "cameraFit",
       "Camera fit",
@@ -123,13 +133,13 @@ export class RenderPanel {
     );
     const transparent = this.field(
       "transparent",
-      "Transparent background",
-      options.job.transparent ?? false,
+      "Transparent",
+      options.job.transparent ?? true,
     );
     transparent.addEventListener("change", () => {}, {
       signal: this.controller.signal,
     });
-    this.field("id", "Job ID", options.job.id);
+    this.field("fileName", "File name", options.job.fileName ?? options.job.id);
     const actions = doc.createElement("div");
     actions.className = "trs-actions";
     this.renderButton = this.button("Render", "render", () => {
@@ -142,16 +152,12 @@ export class RenderPanel {
     this.cancelButton = this.button("Cancel", "cancel", () =>
       options.session.cancel(),
     );
-    this.previewButton = this.button("Preview frame", undefined, () => {
-      void this.preview();
-    });
-    this.stillButton = this.button("Render image", undefined, () => {
+    this.stillButton = this.button("Render image", "renderImage", () => {
       void this.renderImage();
     });
     actions.append(
       this.stillButton,
       this.renderButton,
-      this.previewButton,
       this.pauseButton,
       this.cancelButton,
     );
@@ -162,13 +168,107 @@ export class RenderPanel {
     this.status = doc.createElement("output");
     this.status.className = "trs-status";
     this.status.setAttribute("aria-live", "polite");
-    this.element.append(heading, this.controls, actions, this.bar, this.status);
+    const outputSection = doc.createElement("details");
+    outputSection.className = "trs-accordion";
+    outputSection.open = true;
+    const templates = [
+      ["HD · 1280 × 720 · 16:9", 1280, 720],
+      ["Full HD · 1920 × 1080 · 16:9", 1920, 1080],
+      ["QHD · 2560 × 1440 · 16:9", 2560, 1440],
+      ["4K UHD · 3840 × 2160 · 16:9", 3840, 2160],
+      ["Square · 1080 × 1080 · 1:1", 1080, 1080],
+      ["Portrait · 1080 × 1920 · 9:16", 1080, 1920],
+      ["Portrait · 1080 × 1350 · 4:5", 1080, 1350],
+      ["Landscape · 1600 × 1200 · 4:3", 1600, 1200],
+      ["Ultrawide · 2520 × 1080 · 21:9", 2520, 1080],
+      ["Panoramic · 3840 × 1280 · 3:1", 3840, 1280],
+    ] as const;
+    const templateField = doc.createElement("label");
+    templateField.className = "trs-outlined-field trs-template";
+    const templateLabel = doc.createElement("span");
+    templateLabel.textContent = "Output template";
+    const templateSelect = doc.createElement("select");
+    templateSelect.setAttribute("aria-label", "Output template");
+    templateSelect.add(new Option("Custom", ""));
+    templates.forEach(([label, width, height]) =>
+      templateSelect.add(new Option(label, `${width}x${height}`)),
+    );
+    const widthField = this.fields.get("width")!;
+    const heightField = this.fields.get("height")!;
+    const orientation = doc.createElement("div");
+    orientation.className = "trs-orientation";
+    orientation.setAttribute("role", "group");
+    orientation.setAttribute("aria-label", "Output orientation");
+    const orientationButtons = ["Landscape", "Portrait"].map((label) => {
+      const button = this.button(label, undefined, () => {
+        const width = Number(widthField.value);
+        const height = Number(heightField.value);
+        const swap = label === "Landscape" ? width < height : width > height;
+        if (swap) {
+          widthField.value = String(height);
+          heightField.value = String(width);
+          widthField.dispatchEvent(new Event("input", { bubbles: true }));
+          heightField.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+      });
+      orientation.append(button);
+      return button;
+    });
+    const syncTemplate = () => {
+      const width = Number(widthField.value);
+      const height = Number(heightField.value);
+      orientationButtons[0]!.setAttribute(
+        "aria-pressed",
+        String(width > height),
+      );
+      orientationButtons[1]!.setAttribute(
+        "aria-pressed",
+        String(height > width),
+      );
+
+      const size = `${widthField.value}x${heightField.value}`;
+      templateSelect.value = [...templateSelect.options].some(
+        (option) => option.value === size,
+      )
+        ? size
+        : "";
+    };
+    templateSelect.onchange = () => {
+      if (!templateSelect.value) return;
+      const [width, height] = templateSelect.value.split("x");
+      widthField.value = width!;
+      heightField.value = height!;
+      // Notify UI listeners only; templates never start a render.
+      widthField.dispatchEvent(new Event("input", { bubbles: true }));
+      heightField.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+    widthField.addEventListener("input", syncTemplate, {
+      signal: this.controller.signal,
+    });
+    heightField.addEventListener("input", syncTemplate, {
+      signal: this.controller.signal,
+    });
+    syncTemplate();
+    templateField.append(templateLabel, templateSelect);
+    outputSection.append(heading, templateField, orientation, this.controls);
+    const renderSection = doc.createElement("details");
+    renderSection.className = "trs-accordion";
+    renderSection.open = true;
+    const renderHeading = doc.createElement("summary");
+    renderHeading.textContent = "Rendering";
+    const renderContent = doc.createElement("div");
+    renderContent.className = "trs-accordion-content";
+    renderContent.append(actions, this.bar, this.status);
+    renderSection.append(renderHeading, renderContent);
+    this.element.append(outputSection, renderSection);
     options.container.append(this.element);
     this.previewElement = doc.createElement("section");
     this.previewElement.className = "trs-preview trs-panel";
     this.previewElement.setAttribute("aria-label", "Render preview");
     const tools = doc.createElement("div");
     tools.className = "trs-preview-tools";
+    tools.setAttribute("role", "group");
+    tools.setAttribute("aria-label", "Preview zoom controls");
     tools.append(
       this.button("Fit", "fit", () => this.fit()),
       this.button("100%", "actualSize", () => {
@@ -194,6 +294,7 @@ export class RenderPanel {
     this.canvas.width = options.job.width;
     this.canvas.height = options.job.height;
     this.canvas.className = "trs-image";
+    this.canvas.hidden = true;
     this.canvas.setAttribute("aria-label", "Latest completed render frame");
     this.video = doc.createElement("video");
     this.video.controls = true;
@@ -208,34 +309,49 @@ export class RenderPanel {
     this.image.className = "trs-image";
     this.image.alt = "Saved render";
     this.image.hidden = true;
-    this.viewport.append(this.canvas, this.video, this.image);
+    this.outputFrame = doc.createElement("div");
+    this.outputFrame.className = "trs-image trs-output-frame";
+    this.outputFrame.setAttribute("role", "img");
+    this.viewport.append(this.outputFrame, this.canvas, this.video, this.image);
+    const syncOutputFrame = () => this.syncOutputFrame();
+    for (const name of ["width", "height", "transparent"]) {
+      this.fields.get(name)!.addEventListener("input", syncOutputFrame, {
+        signal: this.controller.signal,
+      });
+      this.fields.get(name)!.addEventListener("change", syncOutputFrame, {
+        signal: this.controller.signal,
+      });
+    }
+    this.syncOutputFrame();
     const slotTools = doc.createElement("div");
     slotTools.className = "trs-slot-tools";
     this.channels = doc.createElement("select");
     this.channels.setAttribute("aria-label", "Render channel");
     this.channels.add(new Option("Channel 1", "1"));
-    this.newChannelButton = this.button("New channel", "newChannel", () => {
-      const id = String(this.channels.options.length + 1);
-      this.channels.add(new Option(`Channel ${id}`, id));
-      this.channels.value = id;
+    const newChannelOption = new Option("+ New channel", "new");
+    this.channels.add(newChannelOption);
+    this.channels.onchange = () => {
+      if (this.channels.value === "new") {
+        const id = String(this.channels.options.length);
+        this.channels.add(new Option(`Channel ${id}`, id), newChannelOption);
+        this.channels.value = id;
+      }
       this.refreshResults();
-    });
-    this.channels.onchange = () => this.refreshResults();
+    };
     const remove = this.button("Delete render", "delete", () => {
-      if (
-        !this.artifacts.some((artifact) => artifact.channel === this.channel) ||
-        this.options.session.busy ||
-        this.operation
-      )
-        return;
+      if (this.options.session.busy || this.operation) return;
       const index = this.artifacts.findIndex(
         (artifact) => artifact.channel === this.channel,
       );
-      const [artifact] = this.artifacts.splice(index, 1);
+      if (index >= 0) {
+        const [artifact] = this.artifacts.splice(index, 1);
+        URL.revokeObjectURL(artifact.url);
+      }
       this.video.pause();
-      URL.revokeObjectURL(artifact.url);
       this.refreshResults();
     });
+    this.deleteButton = remove;
+    this.deleteButton.disabled = true;
     this.downloadButton = this.button("Download", "download", () => {
       const artifact = this.artifacts.find(
         (artifact) => artifact.channel === this.channel,
@@ -247,14 +363,14 @@ export class RenderPanel {
       link.click();
     });
     this.downloadButton.disabled = true;
-    slotTools.append(
-      this.channels,
-      this.newChannelButton,
-      this.downloadButton,
-      remove,
-      tools,
-    );
-    this.previewElement.append(slotTools, this.viewport);
+    const channelField = doc.createElement("label");
+    channelField.className = "trs-outlined-field";
+    channelField.append(this.channels);
+    slotTools.append(channelField, this.downloadButton, remove);
+    const toolbars = doc.createElement("div");
+    toolbars.className = "trs-floating-toolbars";
+    toolbars.append(slotTools, tools);
+    this.previewElement.append(toolbars, this.viewport);
     (options.previewContainer ?? this.element).append(this.previewElement);
     this.setupToolbarTooltips();
     this.setupNavigation();
@@ -292,11 +408,16 @@ export class RenderPanel {
         download:
           "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3",
         delete: "M3 6h18M19 6v14H5V6M9 6V3h6v3M10 10v6M14 10v6",
-        render: "M7 4l12 8-12 8z",
+        render:
+          "m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5M4 6h10a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z",
+        renderImage:
+          "M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4ZM15 13a3 3 0 1 0-6 0a3 3 0 1 0 6 0",
         pause: "M8 5v14M16 5v14",
+        resume: "M6 3l14 9-14 9z",
         cancel: "M6 6h12v12H6z",
-        actualSize: "M8 3H5v18h3M16 3h3v18h-3M10 8h2v8M10 16h4",
-        fit: "M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5",
+        actualSize:
+          "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2ZM7 10h10M7 14h10",
+        fit: "M15 12a3 3 0 1 0-6 0a3 3 0 1 0 6 0M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2",
         float: "M8 3h13v13M21 3L10 14M3 8v13h13",
       };
       const svg = this.element.ownerDocument.createElementNS(
@@ -323,7 +444,18 @@ export class RenderPanel {
         button.prepend(custom);
       }
       if (
-        ["newChannel", "download", "delete", "fit", "actualSize"].includes(icon)
+        [
+          "newChannel",
+          "download",
+          "delete",
+          "fit",
+          "actualSize",
+          "render",
+          "renderImage",
+          "pause",
+          "resume",
+          "cancel",
+        ].includes(icon)
       ) {
         const graphic = button.querySelector("svg");
         if (graphic) {
@@ -340,69 +472,29 @@ export class RenderPanel {
     return button;
   }
   private setupToolbarTooltips() {
-    let tooltip: HTMLElement | undefined;
-    let anchor: HTMLButtonElement | undefined;
-    const hide = () => {
-      anchor?.removeAttribute("aria-describedby");
-      tooltip?.remove();
-      tooltip = undefined;
-      anchor = undefined;
-    };
-    const show = (event: Event) => {
-      const target = event.target as HTMLElement | null;
-      const button = target?.closest<HTMLButtonElement>(
-        ".trs-slot-tools button",
-      );
-      if (!button || anchor === button) return;
-      hide();
-      anchor = button;
-      const doc = button.ownerDocument;
-      const win = doc.defaultView!;
-      tooltip = doc.createElement("div");
-      tooltip.className = "trs-tooltip";
-      tooltip.id = `trs-tooltip-${Math.random().toString(36).slice(2)}`;
-      tooltip.setAttribute("role", "tooltip");
-      tooltip.setAttribute("popover", "manual");
-      tooltip.textContent =
-        button.getAttribute("aria-label") === "100%"
-          ? "Actual size (100%)"
-          : button.getAttribute("aria-label");
-      button.removeAttribute("title");
-      button.setAttribute("aria-describedby", tooltip.id);
-      const colors = win.getComputedStyle(this.previewElement);
-      for (const key of ["surface", "text", "border"])
-        tooltip.style.setProperty(
-          `--trs-${key}`,
-          colors.getPropertyValue(`--trs-${key}`),
-        );
-      doc.body.append(tooltip);
-      tooltip.showPopover?.();
-      const rect = button.getBoundingClientRect();
-      const box = tooltip.getBoundingClientRect();
-      tooltip.style.left = `${Math.max(8, Math.min(rect.left + (rect.width - box.width) / 2, win.innerWidth - box.width - 8))}px`;
-      tooltip.style.top = `${rect.bottom + box.height + 8 < win.innerHeight ? rect.bottom + 6 : rect.top - box.height - 6}px`;
-    };
-    const root = this.previewElement;
-    const options = { signal: this.controller.signal };
-    root.addEventListener("pointerover", show, options);
-    root.addEventListener("focusin", show, options);
-    root.addEventListener("pointerout", hide, options);
-    root.addEventListener("focusout", hide, options);
-    root.addEventListener("pointerdown", hide, options);
-    root.addEventListener(
-      "keydown",
-      (event) => {
-        if (event.key === "Escape") hide();
-      },
-      options,
+    this.cleanup.push(
+      setupTooltips(
+        this.element,
+        ".trs-actions button",
+        this.controller.signal,
+      ),
     );
-    this.cleanup.push(hide);
+    this.cleanup.push(
+      setupTooltips(
+        this.previewElement,
+        ".trs-slot-tools button, .trs-slot-tools select, .trs-preview-tools button",
+        this.controller.signal,
+      ),
+    );
   }
   private field(key: string, label: string, value: string | number | boolean) {
     const doc = this.element.ownerDocument,
       wrapper = doc.createElement("label"),
       input = doc.createElement("input");
-    wrapper.textContent = label;
+    const caption = doc.createElement("span");
+    caption.textContent = label;
+    wrapper.append(caption);
+    wrapper.className = "trs-outlined-field";
     input.name = key;
     input.type =
       typeof value === "boolean"
@@ -410,22 +502,107 @@ export class RenderPanel {
         : typeof value === "number"
           ? "number"
           : "text";
-    if (typeof value === "boolean") input.checked = value;
-    else input.value = String(value);
+    if (typeof value === "boolean") {
+      wrapper.className = "trs-checkbox-field";
+      input.checked = value;
+    } else input.value = String(value);
     if (typeof value === "number") {
       input.min = ["width", "height", "fps"].includes(key) ? "1" : "0";
       input.step = key === "fps" ? "any" : "1";
     }
-    wrapper.append(input);
+    if (input.type === "checkbox") wrapper.prepend(input);
+    else wrapper.append(input);
     this.controls.append(wrapper);
     this.fields.set(key, input);
     return input;
+  }
+  private frameRange(start: number, end: number) {
+    const doc = this.element.ownerDocument;
+    const first = this.field("startFrame", "First frame", start);
+    const last = this.field("endFrame", "Last frame", end);
+    const group = doc.createElement("fieldset");
+    group.className = "trs-frame-range";
+    group.setAttribute("aria-label", "Frame range");
+    const track = doc.createElement("div");
+    track.className = "trs-range-track";
+    const sliders = [first, last].map((field, index) => {
+      const slider = doc.createElement("input");
+      slider.type = "range";
+      slider.min = "0";
+      slider.step = "1";
+      slider.setAttribute(
+        "aria-label",
+        index === 0 ? "First frame slider" : "Last frame slider",
+      );
+      track.append(slider);
+      return slider;
+    });
+    let maximum = Math.max(1, end);
+    const sync = () => {
+      const low = Number(first.value),
+        high = Number(last.value);
+      maximum = Math.max(maximum, high);
+      sliders.forEach((slider, index) => {
+        slider.max = String(maximum);
+        slider.value = index === 0 ? first.value : last.value;
+        slider.setAttribute("aria-valuemin", index === 0 ? "0" : first.value);
+        slider.setAttribute(
+          "aria-valuemax",
+          index === 0 ? last.value : String(maximum),
+        );
+      });
+      track.style.setProperty("--range-start", `${(low / maximum) * 100}%`);
+      track.style.setProperty("--range-end", `${(high / maximum) * 100}%`);
+      // Keep coincident handles reachable at either edge.
+      sliders[0].style.zIndex = low === maximum ? "3" : "1";
+      first.max = last.value;
+      last.min = first.value;
+    };
+    [first, last].forEach((field, index) => {
+      const normalize = () => {
+        if (field.value === "" || !Number.isFinite(field.valueAsNumber)) return;
+        const value = Math.max(0, Math.round(field.valueAsNumber));
+        field.value = String(
+          index === 0
+            ? Math.min(value, Number(last.value))
+            : Math.max(value, Number(first.value)),
+        );
+        sync();
+      };
+      field.addEventListener("input", normalize, {
+        signal: this.controller.signal,
+      });
+      field.addEventListener(
+        "change",
+        () => {
+          if (!field.value) field.value = index === 0 ? "0" : first.value;
+          normalize();
+        },
+        { signal: this.controller.signal },
+      );
+      sliders[index].addEventListener(
+        "input",
+        () => {
+          field.value = sliders[index].value;
+          field.dispatchEvent(new Event("input", { bubbles: true }));
+        },
+        { signal: this.controller.signal },
+      );
+    });
+    const firstLabel = first.parentElement!;
+    const lastLabel = last.parentElement!;
+    group.append(track, firstLabel, lastLabel);
+    this.controls.append(group);
+    sync();
   }
   private select(key: string, label: string, values: string[], value: string) {
     const doc = this.element.ownerDocument,
       wrapper = doc.createElement("label"),
       select = doc.createElement("select");
-    wrapper.textContent = label;
+    const caption = doc.createElement("span");
+    caption.textContent = label;
+    wrapper.append(caption);
+    wrapper.className = "trs-outlined-field";
     select.name = key;
     for (const text of values) {
       const option = doc.createElement("option");
@@ -439,7 +616,7 @@ export class RenderPanel {
     this.fields.set(key, select);
   }
   getJob(): RenderJob {
-    const job = { ...this.options.job };
+    const job = { ...this.options.job, id: this.jobId };
     for (const [key, input] of this.fields) {
       (job as unknown as Record<string, unknown>)[key] =
         input instanceof HTMLInputElement && input.type === "checkbox"
@@ -448,10 +625,16 @@ export class RenderPanel {
             ? Number(input.value)
             : input.value;
     }
+    job.fileName =
+      (job.fileName ?? "render")
+        .trim()
+        .replace(/[^a-zA-Z0-9_-]+/g, "-")
+        .slice(0, 80) || "render";
     return job;
   }
   async start() {
     if (this.options.session.busy || this.operation) return;
+    this.jobId = crypto.randomUUID();
     this.operation = true;
     this.update(this.options.session.status);
     try {
@@ -491,17 +674,46 @@ export class RenderPanel {
       );
     if (["failed", "cancelled"].includes(progress.state) && !busy)
       this.displayResult();
+    this.deleteButton.disabled =
+      busy || (this.canvas.hidden && this.image.hidden && this.video.hidden);
     this.channels.disabled = busy;
-    this.newChannelButton.disabled = busy;
     this.stillButton.disabled = busy;
-    for (const field of this.fields.values()) field.disabled = busy;
+    for (const [name, field] of this.fields)
+      field.disabled =
+        busy || (name === "transparent" && !this.transparencySupported);
+    for (const control of this.element.querySelectorAll<
+      HTMLButtonElement | HTMLSelectElement
+    >(
+      ".trs-orientation button, .trs-template select, .trs-frame-range input[type=range]",
+    ))
+      control.disabled = busy;
     this.renderButton.disabled = busy;
-    this.previewButton.disabled = busy;
     this.pauseButton.disabled = !busy || progress.state === "cancelling";
     this.cancelButton.disabled = !busy;
-    this.pauseButton.textContent =
-      progress.state === "paused" ? "Resume" : "Pause";
-    this.pauseButton.setAttribute("aria-label", this.pauseButton.textContent);
+    const pauseLabel = progress.state === "paused" ? "Resume" : "Pause";
+    if (this.pauseButton.getAttribute("aria-label") !== pauseLabel) {
+      const icon = progress.state === "paused" ? "resume" : "pause";
+      const doc = this.element.ownerDocument;
+      let graphic = this.options.renderIcon?.(icon, doc);
+      if (!graphic) {
+        graphic = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
+        graphic.setAttribute("viewBox", "0 0 24 24");
+        const path = doc.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute(
+          "d",
+          icon === "resume" ? "M6 3l14 9-14 9z" : "M8 5v14M16 5v14",
+        );
+        graphic.append(path);
+      }
+      graphic.classList.add("trs-icon");
+      graphic.setAttribute("aria-hidden", "true");
+      this.pauseButton.replaceChildren(graphic);
+      this.pauseButton.setAttribute("aria-label", pauseLabel);
+      const tooltipId = this.pauseButton.getAttribute("aria-describedby");
+      const tooltip = tooltipId ? doc.getElementById(tooltipId) : null;
+      if (tooltip) tooltip.textContent = pauseLabel;
+      this.pauseButton.removeAttribute("title");
+    }
     this.bar.max = Math.max(1, progress.total);
     this.bar.value = progress.completed;
     const elapsed = (progress.elapsedMs / 1000).toFixed(1),
@@ -545,7 +757,11 @@ export class RenderPanel {
       (artifact) => artifact.channel === this.channel,
     );
     this.downloadButton.disabled = !artifact;
-    this.canvas.hidden = !!artifact;
+    this.canvas.hidden = true;
+    this.outputFrame.hidden = !!artifact;
+    this.syncOutputFrame();
+    this.deleteButton.disabled =
+      !artifact || this.options.session.busy || this.operation;
     this.video.hidden = !artifact?.type.startsWith("video/");
     this.setVideoTools(!this.video.hidden);
     this.image.hidden = !artifact?.type.startsWith("image/");
@@ -565,6 +781,7 @@ export class RenderPanel {
   }
   async renderImage() {
     if (this.options.session.busy || this.operation) return;
+    this.jobId = crypto.randomUUID();
     this.operation = true;
     this.update(this.options.session.status);
     const channel = this.channel;
@@ -598,7 +815,11 @@ export class RenderPanel {
           "image/png",
         ),
       );
-      this.addResult(blob, `${job.id}-frame-${frame}.png`, channel);
+      this.addResult(
+        blob,
+        `${job.fileName ?? job.id}-frame-${frame}.png`,
+        channel,
+      );
     } catch (error) {
       this.operation = false;
       this.update(this.options.session.status);
@@ -622,6 +843,7 @@ export class RenderPanel {
     this.video.pause();
     this.video.hidden = true;
     this.image.hidden = true;
+    this.outputFrame.hidden = true;
     this.canvas.hidden = false;
     this.downloadButton.disabled = true;
     const resized =
@@ -638,6 +860,33 @@ export class RenderPanel {
     );
     if (this.fitting || resized) this.fit();
   }
+  private syncOutputFrame() {
+    const transparent = (this.fields.get("transparent") as HTMLInputElement)
+      .checked;
+    this.outputFrame.style.backgroundColor = transparent
+      ? "transparent"
+      : "var(--trs-surface)";
+
+    const width = Number(this.fields.get("width")!.value);
+    const height = Number(this.fields.get("height")!.value);
+    if (
+      !Number.isFinite(width) ||
+      !Number.isFinite(height) ||
+      width <= 0 ||
+      height <= 0
+    )
+      return;
+    this.outputFrame.style.width = `${width}px`;
+    this.outputFrame.style.height = `${height}px`;
+    this.outputFrame.setAttribute(
+      "aria-label",
+      `Output frame, ${width} by ${height}`,
+    );
+    if (!this.outputFrame.hidden) {
+      if (this.fitting) this.fit();
+      else this.transform();
+    }
+  }
   fit() {
     this.fitting = true;
     this.offset = { x: 0, y: 0 };
@@ -645,13 +894,17 @@ export class RenderPanel {
       0.001,
       Math.min(
         (this.viewport.clientWidth - 32) /
-          (!this.image.hidden
-            ? this.image.naturalWidth || this.canvas.width
-            : this.canvas.width),
+          (!this.outputFrame.hidden
+            ? parseFloat(this.outputFrame.style.width)
+            : !this.image.hidden
+              ? this.image.naturalWidth || this.canvas.width
+              : this.canvas.width),
         (this.viewport.clientHeight - 32) /
-          (!this.image.hidden
-            ? this.image.naturalHeight || this.canvas.height
-            : this.canvas.height),
+          (!this.outputFrame.hidden
+            ? parseFloat(this.outputFrame.style.height)
+            : !this.image.hidden
+              ? this.image.naturalHeight || this.canvas.height
+              : this.canvas.height),
       ),
     );
     this.transform();
@@ -676,8 +929,10 @@ export class RenderPanel {
   }
   private transform() {
     this.updateZoom();
-    this.image.style.transform =
-      this.canvas.style.transform = `translate(calc(-50% + ${this.offset.x}px), calc(-50% + ${this.offset.y}px)) scale(${this.scale})`;
+    this.outputFrame.style.transform =
+      this.image.style.transform =
+      this.canvas.style.transform =
+        `translate(calc(-50% + ${this.offset.x}px), calc(-50% + ${this.offset.y}px)) scale(${this.scale})`;
   }
   private zoom(factor: number, x = 0, y = 0) {
     const next = Math.min(16, Math.max(0.01, this.scale * factor)),
@@ -821,6 +1076,20 @@ export class RenderPanel {
       },
       { signal },
     );
+  }
+  /** Disable alpha for output formats that require opaque frames. */
+  setTransparencySupported(supported: boolean) {
+    const field = this.fields.get("transparent") as HTMLInputElement;
+    if (supported !== this.transparencySupported) {
+      if (!supported) {
+        this.preferredTransparency = field.checked;
+        field.checked = false;
+      } else field.checked = this.preferredTransparency;
+      this.transparencySupported = supported;
+    }
+    field.disabled = !supported || this.options.session.busy || this.operation;
+    field.parentElement!.title = supported ? "" : "MP4 output is opaque";
+    this.syncOutputFrame();
   }
   setTheme(theme: RenderTheme) {
     for (const name of Object.keys(theme) as Array<keyof RenderTheme>)
