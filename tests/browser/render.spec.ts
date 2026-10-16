@@ -1,0 +1,788 @@
+import { test, expect } from "@playwright/test";
+for (const backend of ["webgl", "webgpu"] as const) {
+  test(`${backend}: exact image orientation, colors, alpha and renderer restoration`, async ({
+    page,
+  }) => {
+    await page.goto(`/?backend=${backend}`);
+    await page.waitForFunction(() => !!(window as any).trsDemo);
+    for (const transparent of [false, true]) {
+      const result = await page.evaluate(
+        async ({ backend, transparent }) => {
+          const module = await import(
+            /* @vite-ignore */ String("/demo/test-harness.ts")
+          );
+          return module.verifyCapture(backend, transparent);
+        },
+        { backend, transparent },
+      );
+      expect(result.top).toEqual([255, 0, 0, 255]);
+      expect(result.bottom).toEqual(
+        transparent ? [0, 0, 0, 0] : [0, 0, 255, 255],
+      );
+      expect(result.after).toEqual(result.before);
+      expect(result.scissorTest).toBe(true);
+    }
+    const semi = await page.evaluate(async (backend) => {
+      const module = await import(String("/demo/test-harness.ts"));
+      return module.verifyCapture(backend, true, 0.5);
+    }, backend);
+    expect(semi.top[0]).toBeGreaterThanOrEqual(253);
+    expect(semi.top[1]).toBe(0);
+    expect(semi.top[3]).toBeCloseTo(128, 0);
+  });
+  test(`${backend}: 4K panoramic render, slow destination, frame order and scene recovery`, async ({
+    page,
+  }) => {
+    await page.goto(`/?backend=${backend}`);
+    await page.waitForFunction(() => !!(window as any).trsDemo);
+    const result = await page.evaluate(async () => {
+      const demo = (window as any).trsDemo;
+      const before = demo.renderer
+        .getSize(new (await import(String("/demo/test-harness.ts"))).Vector2())
+        .toArray();
+      const frames: number[] = [];
+      const sizes: number[][] = [];
+      await demo.session.start(
+        {
+          id: "wide-test",
+          contentId: "v1",
+          width: 3840,
+          height: 1280,
+          fps: 30,
+          startFrame: 0,
+          endFrame: 2,
+          cameraFit: "auto",
+        },
+        {
+          async open() {
+            return new Set();
+          },
+          async write(image: any, context: any) {
+            await new Promise((r) => setTimeout(r, 60));
+            frames.push(context.frame);
+            sizes.push([image.width, image.height, image.pixels.length]);
+          },
+          async close() {},
+          async abort() {},
+        },
+      );
+      return {
+        frames,
+        sizes,
+        before,
+        after: demo.renderer
+          .getSize(
+            new (await import(String("/demo/test-harness.ts"))).Vector2(),
+          )
+          .toArray(),
+        state: demo.session.status.state,
+      };
+    });
+    expect(result.frames).toEqual([0, 1, 2]);
+    expect(result.sizes).toEqual(Array(3).fill([3840, 1280, 3840 * 1280 * 4]));
+    expect(result.after).toEqual(result.before);
+    expect(result.state).toBe("completed");
+  });
+}
+test("MP4 contains all frames at the requested timestamps and dimensions", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const result = await page.evaluate(async () => {
+    const module = await import(
+      /* @vite-ignore */ String("/demo/test-harness.ts")
+    );
+    return module.verifyMp4();
+  });
+  expect(result.count).toBe(10);
+  expect(result.width).toBe(64);
+  expect(result.height).toBe(64);
+  expect(result.duration).toBeCloseTo(1, 2);
+  expect(result.times).toEqual(Array.from({ length: 10 }, (_, i) => i / 10));
+  expect(result.restored).toBe(true);
+});
+test("panel theme and preview navigation leave camera unchanged", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.waitForFunction(() => !!(window as any).trsDemo);
+  const before = await page.evaluate(() =>
+    (window as any).trsDemo.camera.toJSON(),
+  );
+  await page.getByRole("button", { name: "Light theme", exact: true }).click();
+  await expect(page.locator("body")).toHaveClass(/light/);
+  await page.getByRole("button", { name: "100%", exact: true }).click();
+  const zoom = page.locator(".trs-zoom");
+  await expect(zoom).toHaveText("100%");
+  const viewport = page.locator(".trs-viewport");
+  await viewport.focus();
+  await page.keyboard.press("+");
+  await expect(zoom).toHaveText("120%");
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("0");
+  const fitZoom = await viewport.evaluate((element) => {
+    const canvas = element.querySelector("canvas")!;
+    const percent =
+      Math.min(
+        (element.clientWidth - 32) / canvas.width,
+        (element.clientHeight - 32) / canvas.height,
+      ) *
+      devicePixelRatio *
+      100;
+    return `${Number(percent.toFixed(1))}%`;
+  });
+  await expect(zoom).toHaveText(fitZoom);
+  await expect(page.getByRole("button", { name: "Float panel" })).toHaveCount(
+    0,
+  );
+  expect(
+    await page.evaluate(() => (window as any).trsDemo.camera.toJSON()),
+  ).toEqual(before);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("tab", { name: /Render settings/ }).click();
+  await expect(
+    page.getByRole("button", { name: "Render", exact: true }),
+  ).toBeVisible();
+  await page.screenshot({ path: "test-results/mobile.png" });
+});
+
+test("browser PNG saving survives interruption and resumes verified frames", async ({
+  page,
+}) => {
+  const { mkdtemp, readFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  // @ts-expect-error standalone receiver ESM
+  const { createReceiver } = await import("../../bin/receiver.mjs");
+  const directory = await mkdtemp(join(tmpdir(), "trs-browser-"));
+  const receiver = await createReceiver({
+    directory,
+    port: 0,
+    token: "browser-test-token",
+  });
+  try {
+    await page.goto("/");
+    await page.waitForFunction(() => !!(window as any).trsDemo);
+    const result = await page.evaluate(async (port) => {
+      const { WebSocketDestination } = await import(
+        String("/demo/test-harness.ts")
+      );
+      const { session } = (window as any).trsDemo;
+      const job = {
+        id: "browser-recovery",
+        contentId: "fixed-scene",
+        width: 320,
+        height: 180,
+        fps: 30,
+        startFrame: 0,
+        endFrame: 3,
+      };
+      const make = () =>
+        new WebSocketDestination({
+          url: `ws://127.0.0.1:${port}`,
+          token: "browser-test-token",
+        });
+      const unsubscribe = session.subscribe((p: any) => {
+        if (p.state === "rendering" && p.completed === 1) session.cancel();
+      });
+      await session.start(job, make());
+      unsubscribe();
+      const cancelled = session.status.state;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const rendered: number[] = [];
+      const off = session.onFrame((_: unknown, index: number) =>
+        rendered.push(index),
+      );
+      await session.start(job, make());
+      off();
+      return { cancelled, rendered, completed: session.status.completed };
+    }, receiver.port);
+    expect(result).toEqual({
+      cancelled: "cancelled",
+      rendered: [1, 2, 3],
+      completed: 4,
+    });
+    const manifest = JSON.parse(
+      await readFile(
+        join(directory, "browser-recovery", "manifest.json"),
+        "utf8",
+      ),
+    );
+    expect(manifest.complete).toBe(true);
+    expect(Object.keys(manifest.frames)).toHaveLength(4);
+  } finally {
+    await receiver.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("demo recovery identity is stable across exports and page reloads", async ({
+  page,
+}) => {
+  async function identity() {
+    return page.evaluate(async () => {
+      const panel = (window as any).trsDemo.panel;
+      const job = panel.getJob();
+      await panel.options.destination(job);
+      return job.contentId;
+    });
+  }
+  await page.goto("/");
+  await page.waitForFunction(() => !!(window as any).trsDemo);
+  const first = await identity();
+  expect(await identity()).toBe(first);
+  await page.reload();
+  await page.waitForFunction(() => !!(window as any).trsDemo);
+  expect(await identity()).toBe(first);
+});
+
+test("MP4 memory-limit failures propagate and restore application state", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const result = await page.evaluate(async () => {
+    const module = await import(String("/demo/test-harness.ts"));
+    return module.verifyMp4Limit();
+  });
+  expect(result.error).toContain("memory limit");
+  expect(result.restored).toBe(true);
+});
+
+test("demo UI exports a rendered MP4 and restores the Theatre playhead", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.waitForFunction(() => !!(window as any).trsDemo);
+  await page.locator("#scrub").evaluate((element) => {
+    (element as HTMLInputElement).value = "2";
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  for (const [name, value] of [
+    ["width", "320"],
+    ["height", "180"],
+    ["endFrame", "5"],
+  ])
+    await page.locator(`.trs-controls [name=${name}]`).fill(value);
+  await page.evaluate(() => {
+    const original = URL.createObjectURL.bind(URL);
+    URL.createObjectURL = (blob: Blob | MediaSource) => {
+      if (blob instanceof Blob && blob.type === "video/mp4")
+        (window as any).renderedVideo = blob;
+      return original(blob);
+    };
+  });
+  let downloads = 0;
+  page.on("download", () => downloads++);
+  await page.getByRole("button", { name: "Render", exact: true }).click();
+  await expect(page.locator(".trs-result-video")).toBeVisible();
+  await page
+    .locator(".trs-result-video")
+    .evaluate(async (video: HTMLVideoElement) => {
+      await video.play();
+    });
+  await expect
+    .poll(() =>
+      page
+        .locator(".trs-result-video")
+        .evaluate((video: HTMLVideoElement) => video.currentTime),
+    )
+    .toBeGreaterThan(0);
+  expect(downloads).toBe(0);
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download", exact: true }).click();
+  expect((await download).suggestedFilename()).toBe("bunny-01.mp4");
+  await expect(page.locator(".trs-status")).toContainText("completed");
+  const result = await page.evaluate(async () => {
+    const module = await import(String("/demo/test-harness.ts"));
+    return module.inspectVideo((window as any).renderedVideo);
+  });
+  expect(result).toMatchObject({ width: 320, height: 180, count: 6 });
+  expect(result.duration).toBeCloseTo(0.2, 2);
+  expect(Number(await page.locator("#scrub").inputValue())).toBeCloseTo(2, 1);
+});
+
+for (const backend of ["webgl", "webgpu"]) {
+  test(`${backend}: clipping removes bunny pixels at the animated cut height`, async ({
+    page,
+  }) => {
+    await page.goto(`/?backend=${backend}`);
+    await page.waitForFunction(() => !!(window as any).trsDemo);
+    const counts = await page.evaluate(async () => {
+      const demo = (window as any).trsDemo;
+      const counts: number[] = [];
+      await demo.session.start(
+        {
+          ...demo.panel.getJob(),
+          width: 320,
+          height: 240,
+          fps: 1,
+          startFrame: 0,
+          endFrame: 3,
+        },
+        {
+          async open() {
+            return new Set();
+          },
+          async write(frame: any) {
+            let bright = 0;
+            for (let i = 0; i < frame.pixels.length; i += 4)
+              if (
+                frame.pixels[i] > 200 &&
+                frame.pixels[i + 1] > 200 &&
+                frame.pixels[i + 2] > 200
+              )
+                bright++;
+            counts.push(bright);
+          },
+          async close() {},
+          async abort() {},
+        },
+      );
+      return counts;
+    });
+    expect(counts[0]).toBeGreaterThan(1000);
+    expect(counts[3]).toBeLessThan(counts[0] * 0.15);
+    expect(counts[1]).toBeLessThan(counts[0]);
+  });
+}
+
+test("compact header, fullscreen, and responsive icon transport", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.waitForFunction(() => !!(window as any).trsDemo);
+  await expect(page.locator(".intro")).toHaveCount(0);
+  const scrubber = page.locator(".timeline-scrubber");
+  const transport = page.locator(".transport");
+  expect(
+    Math.abs(
+      (await scrubber.boundingBox())!.y - (await transport.boundingBox())!.y,
+    ),
+  ).toBeLessThan(2);
+  await page.getByRole("button", { name: "Play", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Pause", exact: true }).first(),
+  ).toBeVisible();
+  await page.locator("#play").click();
+  await page.getByRole("button", { name: "Enter fullscreen" }).click();
+  await expect
+    .poll(() => page.evaluate(() => !!document.fullscreenElement))
+    .toBe(true);
+  await page.getByRole("button", { name: "Exit fullscreen" }).click();
+  await expect
+    .poll(() => page.evaluate(() => !!document.fullscreenElement))
+    .toBe(false);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("tab", { name: /Animation/ }).click();
+  const scrub = (await scrubber.boundingBox())!;
+  expect((await transport.boundingBox())!.y).toBeGreaterThan(
+    scrub.y + scrub.height,
+  );
+  await page.screenshot({ path: "test-results/timeline-mobile.png" });
+});
+
+test("still renders preserve channels and previous results without automatic downloads", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.waitForFunction(() => !!(window as any).trsDemo);
+  let downloads = 0;
+  page.on("download", () => downloads++);
+  for (const [name, value] of [
+    ["width", "320"],
+    ["height", "180"],
+  ])
+    await page.locator(`.trs-controls [name=${name}]`).fill(value);
+  await page.locator("#scrub").evaluate((element: HTMLInputElement) => {
+    element.value = "2";
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await page.getByRole("button", { name: "Render image", exact: true }).click();
+  const image = page.locator("img.trs-image");
+  await expect(image).toBeVisible();
+  await expect
+    .poll(() => image.evaluate((e: HTMLImageElement) => e.naturalWidth))
+    .toBe(320);
+  const first = await image.getAttribute("src");
+  await page.getByRole("button", { name: "New channel" }).click();
+  await page.getByRole("button", { name: "Render image", exact: true }).click();
+  await expect(image).toBeVisible();
+  expect(await image.getAttribute("src")).not.toBe(first);
+  await page
+    .getByRole("combobox", { name: "Render channel", exact: true })
+    .selectOption("1");
+  await expect(image).toHaveAttribute("src", first!);
+  await page.getByRole("button", { name: "Render image", exact: true }).click();
+  await expect(
+    page
+      .getByRole("combobox", { name: "Saved render", exact: true })
+      .locator("option"),
+  ).toHaveCount(3);
+  await page
+    .getByRole("combobox", { name: "Saved render", exact: true })
+    .selectOption("0");
+  await expect(image).toHaveAttribute("src", first!);
+  expect(downloads).toBe(0);
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download", exact: true }).click();
+  expect((await download).suggestedFilename()).toBe("bunny-01-frame-60.png");
+  await page
+    .getByRole("button", { name: "Delete render", exact: true })
+    .click();
+  await expect(
+    page
+      .getByRole("combobox", { name: "Saved render", exact: true })
+      .locator("option"),
+  ).toHaveCount(2);
+  await expect(image).not.toHaveAttribute("src", first!);
+});
+
+test("PNG folder selection writes sequences and stills into separate directories", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    (window as any).showDirectoryPicker = async () => {
+      if ((window as any).cancelPicker)
+        throw new DOMException("Cancelled", "AbortError");
+      const root = await navigator.storage.getDirectory();
+      const folder = await root.getDirectoryHandle(
+        `png-test-${crypto.randomUUID()}`,
+        { create: true },
+      );
+      (window as any).pickedFolder = folder;
+      return folder;
+    };
+  });
+  await page.goto("/");
+  await page.waitForFunction(() => !!(window as any).trsDemo);
+  await page.locator("#format").selectOption("frames");
+  await expect(page.locator("#pick-folder")).toBeVisible();
+  await expect(page.locator("#receiver-fields")).toBeHidden();
+  await page.getByRole("button", { name: "Render", exact: true }).click();
+  await expect(page.locator(".trs-status")).toContainText("Choose a folder");
+  await page.evaluate(() => {
+    (window as any).cancelPicker = true;
+  });
+  await page.locator("#pick-folder").click();
+  await expect(page.locator("#folder-status")).toHaveText("No folder selected");
+  await page.evaluate(() => {
+    (window as any).cancelPicker = false;
+  });
+  await page.locator("#pick-folder").click();
+  await expect(page.locator("#folder-status")).toContainText("png-test-");
+  for (const [name, value] of [
+    ["width", "64"],
+    ["height", "48"],
+    ["endFrame", "1"],
+  ])
+    await page.locator(`.trs-controls [name=${name}]`).fill(value);
+  await page.getByRole("button", { name: "Render", exact: true }).click();
+  await expect(page.locator(".trs-status")).toContainText("completed · 2 / 2");
+  await page.getByRole("button", { name: "Render image", exact: true }).click();
+  await expect(page.locator("img.trs-image")).toBeVisible();
+  const result = await page.evaluate(async () => {
+    const root = (window as any).pickedFolder;
+    const manifests = [];
+    const sizes = [];
+    for await (const dir of root.values()) {
+      manifests.push(
+        JSON.parse(
+          await (
+            await (await dir.getFileHandle("render.json")).getFile()
+          ).text(),
+        ),
+      );
+      const blob = await (await dir.getFileHandle("000000.png")).getFile();
+      const image = await createImageBitmap(blob);
+      sizes.push([image.width, image.height]);
+      image.close();
+    }
+    return { manifests, sizes };
+  });
+  expect(result.manifests).toHaveLength(2);
+  expect(result.manifests.map((m) => m.completed.length).sort()).toEqual([
+    1, 2,
+  ]);
+  expect(result.manifests.every((m) => m.state === "completed")).toBe(true);
+  expect(result.sizes).toEqual([
+    [64, 48],
+    [64, 48],
+  ]);
+  await page.locator("#png-destination").selectOption("receiver");
+  await expect(page.locator("#receiver-fields")).toBeVisible();
+  await expect(page.locator("#folder-fields")).toBeHidden();
+});
+
+test("PNG destination falls back to receiver when folder picker is unsupported", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "showDirectoryPicker", { value: undefined });
+  });
+  await page.goto("/");
+  await page.waitForFunction(() => !!(window as any).trsDemo);
+  await page.locator("#format").selectOption("frames");
+  await expect(page.locator("#png-destination")).toHaveValue("receiver");
+  await expect(page.locator("#receiver-fields")).toBeVisible();
+});
+
+for (const preference of ["dark", "light", "auto"]) {
+  test(`demo paints ${preference} theme before external assets load`, async ({
+    page,
+  }) => {
+    await page.emulateMedia({
+      colorScheme: preference === "dark" ? "light" : "dark",
+    });
+    await page.addInitScript(
+      (value) => localStorage.setItem("vitepress-theme-appearance", value),
+      preference,
+    );
+    await page.route(/\.(?:js|ts|css)(?:\?.*)?$/, (route) => route.abort());
+    await page.goto("/demo/", { waitUntil: "domcontentloaded" });
+    const color =
+      preference === "light" ? "rgb(255, 255, 255)" : "rgb(23, 23, 23)";
+    expect(
+      await page
+        .locator("html")
+        .evaluate((e) => getComputedStyle(e).backgroundColor),
+    ).toBe(color);
+    expect(
+      await page
+        .locator("body")
+        .evaluate((e) => getComputedStyle(e).backgroundColor),
+    ).toBe(color);
+    expect(await page.evaluate(() => !!(window as any).trsDemo)).toBe(false);
+  });
+}
+
+for (const backend of ["webgl", "webgpu"]) {
+  test(`${backend}: stencil cap fills the cut and clears between exported frames`, async ({
+    page,
+  }) => {
+    await page.goto(`/demo/?backend=${backend}`);
+    await page.waitForFunction(() => !!(window as any).trsDemo);
+    const counts = await page.evaluate(async () => {
+      const demo = (window as any).trsDemo;
+      const job = { ...demo.panel.getJob(), width: 320, height: 240 };
+      const count = async (frame: number) => {
+        const image = await demo.session.preview(job, frame);
+        let filled = 0;
+        for (let i = 0; i < image.pixels.length; i += 4) {
+          const [r, g, b, a] = image.pixels.subarray(i, i + 4);
+          if (r > g + 12 && g > b + 12 && a > 200) filled++;
+        }
+        return filled;
+      };
+      const full = await count(0);
+      const cut = await count(54);
+      demo.cap.visible = false;
+      const uncapped = await count(54);
+      demo.cap.visible = true;
+      const restored = await count(54);
+      const fullAgain = await count(0);
+      return { full, cut, uncapped, restored, fullAgain };
+    });
+    expect(counts.cut).toBeGreaterThan(200);
+    expect(counts.uncapped).toBeLessThan(10);
+    expect(counts.full).toBeLessThan(10);
+    expect(counts.fullAgain).toBe(counts.full);
+    expect(counts.restored).toBe(counts.cut);
+  });
+}
+
+test("play and pause respond to a click held across animation frames", async ({
+  page,
+}) => {
+  await page.goto("/demo/");
+  await page.waitForFunction(() => !!(window as any).trsDemo);
+  const start = await page.evaluate(() => ({
+    time: (window as any).trsDemo.position,
+    height: (window as any).trsDemo.clippingPlane.constant,
+  }));
+  const clickIcon = async () => {
+    const box = (await page.locator("#play").boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => {
+          let frames = 0;
+          const next = () =>
+            ++frames === 5 ? resolve() : requestAnimationFrame(next);
+          requestAnimationFrame(next);
+        }),
+    );
+    await page.mouse.up();
+  };
+  await clickIcon();
+  await expect
+    .poll(() => page.evaluate(() => (window as any).trsDemo.position))
+    .toBeGreaterThan(start.time + 0.15);
+  expect(
+    await page.evaluate(() => (window as any).trsDemo.clippingPlane.constant),
+  ).not.toBe(start.height);
+  await clickIcon();
+  await expect(page.locator("#play")).toHaveAttribute("aria-label", "Play");
+  const paused = await page.evaluate(() => (window as any).trsDemo.position);
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        let frames = 0;
+        const next = () =>
+          ++frames === 10 ? resolve() : requestAnimationFrame(next);
+        requestAnimationFrame(next);
+      }),
+  );
+  expect(await page.evaluate(() => (window as any).trsDemo.position)).toBe(
+    paused,
+  );
+});
+
+test("Quilt popout returns preview state and default shortcuts work", async ({
+  page,
+}) => {
+  await page.goto("/demo/");
+  await page.waitForFunction(() => !!(window as any).trsDemo);
+  await page.getByRole("button", { name: "100%", exact: true }).click();
+  await page
+    .getByRole("tab", { name: /Render preview/ })
+    .click({ button: "right" });
+  const popupPromise = page.waitForEvent("popup");
+  await page.getByRole("button", { name: /Open in window/ }).click();
+  const popup = await popupPromise;
+  await expect(popup.locator(".trs-viewport")).toBeVisible();
+  await expect(popup.locator(".trs-zoom")).toHaveText("100%");
+  await popup.locator(".trs-viewport").focus();
+  await popup.keyboard.press("+");
+  await expect(popup.locator(".trs-zoom")).toHaveText("120%");
+  await popup.getByRole("button", { name: "Return to layout" }).click();
+  await expect(page.locator(".trs-zoom")).toHaveText("120%");
+  const tab = page.getByRole("tab", { name: /Render preview/ });
+  await tab.hover();
+  await tab.focus();
+  await page.keyboard.press("`");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as any).trsDemo.workspace.exportLayout().maximized,
+      ),
+    )
+    .toBe("preview-group");
+  await page.keyboard.press("`");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as any).trsDemo.workspace.exportLayout().maximized,
+      ),
+    )
+    .toBe(null);
+  await tab.click({ button: "middle" });
+  await expect(tab).toHaveCount(0);
+  await page.getByRole("tab", { name: /Scene viewport/ }).hover();
+  await page.getByRole("tab", { name: /Scene viewport/ }).focus();
+  await page.keyboard.press("r");
+  await expect(tab).toBeVisible();
+  await tab.hover();
+  await tab.focus();
+  await page.keyboard.press("t");
+  await expect(page.getByRole("dialog")).toBeVisible();
+});
+
+test("camera frame follows output aspect and camera selection", async ({
+  page,
+}) => {
+  await page.goto("/demo/");
+  await page.waitForFunction(() => !!(window as any).trsDemo);
+  await page.getByRole("button", { name: /4K panoramic preset/ }).click();
+  const frame = page.locator(".camera-frame");
+  await expect
+    .poll(async () => {
+      const r = await frame.boundingBox();
+      return r ? Math.round((r.width / r.height) * 100) : 0;
+    })
+    .toBe(300);
+  await page.getByLabel("Composition guides").selectOption("thirds");
+  await expect(page.locator(".composition path")).toHaveCount(2);
+  await page.getByLabel("Safe areas", { exact: false }).check();
+  await expect(page.locator(".safe-areas")).toBeVisible();
+  await page
+    .getByLabel("Render camera", { exact: true })
+    .selectOption({ label: "Side camera" });
+  await expect
+    .poll(() => page.evaluate(() => (window as any).trsDemo.renderCamera.name))
+    .toBe("Side camera");
+  await page.getByLabel("Viewport", { exact: true }).selectOption("orbit");
+  await expect(page.locator(".camera-overlay")).toBeHidden();
+  await page.getByLabel("Viewport", { exact: true }).selectOption("camera");
+  await expect(frame).toBeVisible();
+  const result = await page.evaluate(async () => {
+    const demo = (window as any).trsDemo;
+    const job = { ...demo.panel.getJob(), width: 96, height: 32 };
+    await demo.session.preview(job);
+    return demo.renderCamera.name;
+  });
+  expect(result).toBe("Side camera");
+});
+
+test("viewport navigation persists while paused and scrubbing restores the recording camera", async ({
+  page,
+}) => {
+  await page.goto("/demo/");
+  await page.waitForFunction(() => !!(window as any).trsDemo);
+  const pose = () =>
+    page.evaluate(() => (window as any).trsDemo.camera.position.toArray());
+  const initial = await pose();
+  const viewport = page
+    .locator(".pane-content")
+    .filter({ has: page.locator(".scene-note") });
+  const rect = (await viewport.boundingBox())!;
+  await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(
+    rect.x + rect.width / 2 + 70,
+    rect.y + rect.height / 2 + 20,
+    { steps: 8 },
+  );
+  await page.mouse.up();
+  const moved = await pose();
+  expect(moved).not.toEqual(initial);
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        let frames = 10;
+        const tick = () => (--frames ? requestAnimationFrame(tick) : resolve());
+        requestAnimationFrame(tick);
+      }),
+  );
+  expect(await pose()).toEqual(moved);
+  await page.locator("#scrub").evaluate((element: HTMLInputElement) => {
+    element.value = "3";
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  const keyed = await pose();
+  expect(keyed[0]).toBeCloseTo(-initial[0], 2);
+  expect(keyed[2]).toBeCloseTo(-initial[2], 2);
+  await page.getByLabel("Viewport", { exact: true }).selectOption("orbit");
+  const observerBefore = await page.evaluate(() =>
+    (window as any).trsDemo.orbitCamera.position.toArray(),
+  );
+  await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(
+    rect.x + rect.width / 2 + 50,
+    rect.y + rect.height / 2,
+    { steps: 8 },
+  );
+  await page.mouse.up();
+  expect(
+    await page.evaluate(() =>
+      (window as any).trsDemo.orbitCamera.position.toArray(),
+    ),
+  ).not.toEqual(observerBefore);
+  expect(await pose()).toEqual(keyed);
+  expect(
+    await page.evaluate(
+      () => (window as any).trsDemo.cameraHelpers.constructor.name,
+    ),
+  ).toBe("CameraHelpers");
+});

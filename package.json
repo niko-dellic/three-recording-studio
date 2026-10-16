@@ -1,0 +1,85 @@
+{
+  "name": "three-recording-studio",
+  "version": "0.1.0",
+  "description": "Frame-exact render sessions and a themed render window for Three.js",
+  "type": "module",
+  "license": "MIT",
+  "files": [
+    "dist",
+    "bin",
+    "README.md",
+    "LICENSE",
+    "src"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./ui": {
+      "types": "./dist/ui/index.d.ts",
+      "import": "./dist/ui/index.js"
+    },
+    "./ui/style.css": "./dist/ui/style.css",
+    "./encoding": {
+      "types": "./dist/encoding/index.d.ts",
+      "import": "./dist/encoding/index.js"
+    }
+  },
+  "bin": {
+    "three-recording-receiver": "./bin/receiver.mjs"
+  },
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && cp src/ui/style.css dist/ui/style.css",
+    "typecheck": "tsc --noEmit",
+    "dev": "node scripts/dev.mjs",
+    "build:demo": "vite build",
+    "test": "vitest run",
+    "test:browser": "playwright test",
+    "receiver": "node bin/receiver.mjs",
+    "docs:dev": "node scripts/dev.mjs",
+    "docs:build": "npm run build -w tools/docs",
+    "prepack": "npm run build",
+    "check": "npm run typecheck && npm run build && npm test && npm run build:site",
+    "build:site": "npm run build && npm run build:demo && npm run docs:build && node scripts/build-site.mjs",
+    "preview:site": "node scripts/serve-site.mjs",
+    "format": "prettier --write src demo tests scripts bin *.ts *.json README.md tools/docs/docs",
+    "format:check": "prettier --check src demo tests scripts bin *.ts *.json README.md tools/docs/docs",
+    "test:site": "node scripts/check-site.mjs",
+    "test:packed": "node scripts/check-packed.mjs"
+  },
+  "workspaces": [
+    "tools/docs"
+  ],
+  "peerDependencies": {
+    "three": ">=0.186.0 <0.187.0"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "optionalDependencies": {
+    "mediabunny": "1.61.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.0",
+    "@theatre/core": "0.7.2",
+    "@theatre/studio": "0.7.2",
+    "@types/node": "^24.0.0",
+    "@types/three": "^0.186.0",
+    "lucide": "^1.48.0",
+    "prettier": "^3.9.9",
+    "quilt-core": "0.11.0",
+    "quilt-three": "^0.11.0",
+    "quilt-vanilla": "0.11.0",
+    "three": "0.186.1",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1",
+    "vitest": "^5.0.5"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

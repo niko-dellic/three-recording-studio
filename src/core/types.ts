@@ -1,0 +1,69 @@
+export type CameraFit = "auto" | "horizontal" | "vertical";
+export interface RenderSettings {
+  width: number;
+  height: number;
+  fps: number;
+  startFrame: number;
+  endFrame: number;
+  cameraFit?: CameraFit;
+  transparent?: boolean;
+}
+export interface RenderJob extends RenderSettings {
+  id: string;
+  contentId: string;
+}
+export interface FrameContext {
+  frame: number;
+  time: number;
+  delta: number;
+  signal: AbortSignal;
+}
+/** The application owns scene time. acquire() must stop all writers of animated state. */
+export interface AnimationAdapter {
+  acquire(): unknown | Promise<unknown>;
+  seek(context: FrameContext): void | Promise<void>;
+  ready?(context: FrameContext): void | Promise<void>;
+  restore(snapshot: unknown): void | Promise<void>;
+}
+export interface CapturedFrame {
+  /** Top-left origin, display-ready sRGB, straight RGBA8. Valid until next capture. */
+  pixels: Uint8Array;
+  width: number;
+  height: number;
+}
+export interface CaptureAdapter {
+  prepare(settings: RenderSettings): void | Promise<void>;
+  capture(context: FrameContext): Promise<CapturedFrame>;
+  finish(): void | Promise<void>;
+  dispose(): void | Promise<void>;
+}
+export interface RenderDestination {
+  /** Validate before acquiring scene. Return durably saved frame indices, if resumable. */
+  open(job: RenderJob, signal: AbortSignal): Promise<ReadonlySet<number>>;
+  write(frame: CapturedFrame, context: FrameContext): Promise<void>;
+  close(): Promise<void>;
+  abort(reason: unknown): Promise<void>;
+}
+export type SessionState =
+  | "idle"
+  | "preparing"
+  | "rendering"
+  | "paused"
+  | "cancelling"
+  | "completed"
+  | "cancelled"
+  | "failed"
+  | "disposed";
+export interface Progress {
+  state: SessionState;
+  completed: number;
+  total: number;
+  frame?: number;
+  elapsedMs: number;
+  etaMs?: number;
+  error?: string;
+}
+export interface SessionOptions {
+  animation: AnimationAdapter;
+  capture: CaptureAdapter;
+}

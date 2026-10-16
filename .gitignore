@@ -1,0 +1,12 @@
+node_modules/
+dist/
+site/
+test-results/
+playwright-report/
+recordings/
+.DS_Store
+tools/docs/docs/.vitepress/cache/
+tools/docs/docs/.vitepress/dist/
+demo-dist/
+*.tgz
+!tools/docs/vendor/*.tgz

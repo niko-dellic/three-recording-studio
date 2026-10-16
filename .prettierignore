@@ -1,0 +1,8 @@
+node_modules
+dist
+site
+demo-dist
+tools/docs/docs/.vitepress/dist
+tools/docs/docs/.vitepress/cache
+package-lock.json
+test-results
