@@ -8,7 +8,7 @@ The initial release supports Three.js 0.186.x, WebGLRenderer and native WebGPURe
 npm install three-recording-studio three@~0.186.1
 ```
 
-Until publication, install the archive produced by `npm pack` instead of the registry name.
+The package is available on [npm](https://www.npmjs.com/package/three-recording-studio).
 
 ```ts
 import { RenderSession, WebGLCaptureAdapter } from "three-recording-studio";

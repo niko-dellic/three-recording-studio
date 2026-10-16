@@ -1,6 +1,6 @@
 # Validation — 16 October 2026
 
-Release candidate: `three-recording-studio@0.1.0`. npm publication is pending. Repository: https://github.com/niko-dellic/three-recording-studio. Documentation and demo: https://three-recording-studio.vercel.app.
+Published: [`three-recording-studio@0.1.0`](https://www.npmjs.com/package/three-recording-studio/v/0.1.0), 16 October 2026, from tag `v0.1.0` / commit `9c64a49`. Repository: https://github.com/niko-dellic/three-recording-studio. Documentation and demo: https://three-recording-studio.vercel.app.
 
 ## Verified release checks
 
@@ -12,7 +12,7 @@ Release candidate: `three-recording-studio@0.1.0`. npm publication is pending. R
 - Documentation guide TypeScript examples compile against the current package declarations.
 - `npm publish --dry-run --json`: validates the public 0.1.0 payload without uploading it.
 - `npm audit --omit=dev`: zero reported production dependency vulnerabilities at verification time.
-- npm authentication verified as `niko.dellic`; registry lookup reports no existing public package under this name. Only an actual publish can establish permission to create it.
+- Published by `niko.dellic`; the registry confirms version 0.1.0.
 
 ## Covered behavior
 
@@ -46,3 +46,9 @@ The pinned VitePress 1.6.4 development documentation stack has four transitive a
 - `docs/media/studio.png` and `tools/docs/docs/public/studio.png`: current demo screenshot.
 - `CHANGELOG.md`: initial release notes.
 - `RELEASE.md`: reproducible release and publication procedure.
+
+## Registry publication
+
+Registry integrity: `sha512-y9UJp+C/+pBCrWwAupwtrA6a/ljV5EdvDG9VrQg1XqKyRCdqJBv/E4SLpHzz8fCu+n9p35R02zwAKlrAIwau4Q==`.
+
+A fresh registry install of `three-recording-studio@0.1.0` with Three.js 0.186.1 verified core/UI/destination exports, the optional encoding entry point, stylesheet availability, and receiver startup/shutdown. Its lockfile integrity matched the registry; no demo framework dependencies were installed. The npm `latest` tag resolves to 0.1.0.

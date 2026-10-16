@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 — release candidate
+## 0.1.0 — 16 October 2026
 
 Initial release for Three.js 0.186.x.
 

@@ -1,6 +1,6 @@
 # Releasing 0.1.0
 
-The release candidate is prepared but has not been published to npm. See [VALIDATION.md](VALIDATION.md) for the verified scope and known limitations.
+Version 0.1.0 was published to npm on 16 October 2026 from tag `v0.1.0` (commit `9c64a49`). The steps below record the release procedure. See [VALIDATION.md](VALIDATION.md) for the verified scope and known limitations.
 
 ## Verify the candidate
 
