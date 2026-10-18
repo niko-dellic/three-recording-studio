@@ -5,12 +5,10 @@ test("vanilla recipe renders MP4 while preserving the live canvas size", async (
 }) => {
   await page.goto("http://127.0.0.1:5188/examples/vanilla/");
   await page.waitForFunction(() => !!(window as any).recipe);
-  const size = await page
-    .locator("canvas.live")
-    .evaluate((canvas) => ({
-      width: (canvas as HTMLCanvasElement).width,
-      height: (canvas as HTMLCanvasElement).height,
-    }));
+  const size = await page.locator("canvas.live").evaluate((canvas) => ({
+    width: (canvas as HTMLCanvasElement).width,
+    height: (canvas as HTMLCanvasElement).height,
+  }));
   await page.locator('[name="endFrame"]').fill("2");
   await expect(
     page.getByRole("button", { name: "Render", exact: true }),
@@ -19,12 +17,10 @@ test("vanilla recipe renders MP4 while preserving the live canvas size", async (
   await expect(page.locator(".trs-status")).toContainText("completed · 3 / 3");
   await expect(page.locator("video")).toBeVisible();
   expect(
-    await page
-      .locator("canvas.live")
-      .evaluate((canvas) => ({
-        width: (canvas as HTMLCanvasElement).width,
-        height: (canvas as HTMLCanvasElement).height,
-      })),
+    await page.locator("canvas.live").evaluate((canvas) => ({
+      width: (canvas as HTMLCanvasElement).width,
+      height: (canvas as HTMLCanvasElement).height,
+    })),
   ).toEqual(size);
 });
 
