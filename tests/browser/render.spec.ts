@@ -1904,3 +1904,17 @@ test("composed PNG and MP4 use the same receiver storage contract", async ({
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+for (const backend of ["webgl", "webgpu"] as const)
+  test(`${backend} passes the reusable consumer adapter contract including hidden views`, async ({
+    page,
+  }) => {
+    await page.goto(`/demo/?backend=${backend}`);
+    const report = await page.evaluate(async (backend) => {
+      const module = await import(String("/demo/test-harness.ts"));
+      return module.verifyAdapterContracts(backend);
+    }, backend);
+    expect(report.cases).toHaveLength(6);
+    expect(report.cases.filter((result: any) => !result.passed)).toEqual([]);
+    expect(report.passed).toBe(true);
+  });

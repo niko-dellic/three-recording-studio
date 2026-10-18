@@ -46,6 +46,10 @@
     "./destinations": {
       "types": "./dist/destinations/index.d.ts",
       "import": "./dist/destinations/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "import": "./dist/testing/index.js"
     }
   },
   "bin": {

@@ -128,6 +128,32 @@ try {
     neutral.trim(),
     "function,function,function,function,function,function,function",
   );
+  const contract = execFileSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      `
+    import {runAdapterContract} from 'three-recording-studio/testing';
+    const report = await runAdapterContract({
+      job: {id: 'consumer', contentId: 'fixture', width: 1, height: 1, fps: 30, startFrame: 0, endFrame: 1},
+      createFixture() {
+        let time = 42, owned = false;
+        return {
+          animation: {acquire() {owned = true; return time;}, seek(context) {time = context.time;}, restore(snapshot) {time = snapshot; owned = false;}},
+          capture: {prepare() {}, async capture() {return {width: 1, height: 1, pixels: new Uint8Array(4)};}, finish() {}, dispose() {}},
+          assertFrame(frame, context) {if (!owned || time !== context.time || frame.pixels.length !== 4) throw Error('Bad frame');},
+          assertRestored() {if (owned || time !== 42) throw Error('Bad restore');},
+        };
+      },
+    });
+    if (!report.passed) throw Error(JSON.stringify(report));
+    console.log('contract ok');
+  `,
+    ],
+    { cwd: temporary, encoding: "utf8" },
+  );
+  assert.equal(contract.trim(), "contract ok");
   assert.equal(manifest.peerDependenciesMeta.three.optional, true);
   console.log(
     `Packed install passed without demo or optional encoding dependencies: ${archive}`,

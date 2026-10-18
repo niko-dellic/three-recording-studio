@@ -8,7 +8,16 @@
     "skipLibCheck": true,
     "types": ["vite/client", "node"],
     "allowImportingTsExtensions": true,
-    "noEmit": true
+    "noEmit": true,
+    "paths": {
+      "three-recording-studio": ["./src/index.ts"],
+      "three-recording-studio/core": ["./src/core/index.ts"],
+      "three-recording-studio/ui": ["./src/ui/index.ts"],
+      "three-recording-studio/destinations": ["./src/destinations/index.ts"],
+      "three-recording-studio/encoding": ["./src/encoding/index.ts"],
+      "three-recording-studio/testing": ["./src/testing/index.ts"],
+      "three-recording-studio/capture/*": ["./src/capture/*"]
+    }
   },
   "include": ["src", "demo", "tests", "*.ts"]
 }

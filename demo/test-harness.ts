@@ -386,3 +386,108 @@ export async function verifyComposedOutput(
     input.dispose();
   }
 }
+
+export async function verifyAdapterContracts(backend: "webgl" | "webgpu") {
+  const { runAdapterContract } = await import("three-recording-studio/testing");
+  return runAdapterContract({
+    job: {
+      id: `contract-${backend}`,
+      contentId: "contract",
+      width: 64,
+      height: 32,
+      fps: 10,
+      startFrame: 0,
+      endFrame: 2,
+    },
+    scenarios: [
+      "complete",
+      "hidden-view",
+      "cancel",
+      "prepare-failure",
+      "ready-failure",
+      "write-failure",
+    ],
+    createFixture() {
+      const renderer =
+        backend === "webgpu" ? new WebGPURenderer() : new THREE.WebGLRenderer();
+      renderer.setSize(32, 16);
+      renderer.toneMapping = THREE.NoToneMapping;
+      const host = document.createElement("div");
+      host.append(renderer.domElement);
+      document.body.append(host);
+      const scene = new THREE.Scene();
+      const camera = new THREE.OrthographicCamera(-2, 2, 1, -1, 0.1, 10);
+      camera.position.z = 2;
+      const material = new THREE.MeshBasicMaterial({ color: "blue" });
+      const geometry = new THREE.PlaneGeometry(4, 2);
+      scene.add(new THREE.Mesh(geometry, material));
+      let time = 42,
+        acquired = false;
+      const capture =
+        backend === "webgpu"
+          ? new WebGPUCaptureAdapter({
+              renderer: renderer as WebGPURenderer,
+              scene,
+              camera,
+            })
+          : new WebGLCaptureAdapter({
+              renderer: renderer as THREE.WebGLRenderer,
+              scene,
+              camera,
+            });
+      return {
+        capture,
+        animation: {
+          acquire() {
+            acquired = true;
+            return time;
+          },
+          seek(context) {
+            time = context.time;
+            material.color.set(context.frame % 2 ? "lime" : "red");
+          },
+          restore(snapshot) {
+            time = snapshot as number;
+            acquired = false;
+            material.color.set("blue");
+          },
+        },
+        assertFrame(frame, context) {
+          if (!acquired || time !== context.frame / 10)
+            throw new Error("Animation clock not evaluated");
+          const offset = (16 * 64 + 32) * 4;
+          const expected =
+            context.frame % 2 ? [0, 255, 0, 255] : [255, 0, 0, 255];
+          if (
+            expected.some(
+              (value, index) =>
+                Math.abs(frame.pixels[offset + index] - value) > 2,
+            )
+          )
+            throw new Error("Unexpected captured color or alpha");
+        },
+        assertRestored() {
+          const size = renderer.getSize(new THREE.Vector2());
+          if (
+            acquired ||
+            time !== 42 ||
+            size.x !== 32 ||
+            size.y !== 16 ||
+            renderer.getRenderTarget() !== null ||
+            camera.left !== -2
+          )
+            throw new Error("Application or renderer state was not restored");
+        },
+        detachView() {
+          host.remove();
+        },
+        dispose() {
+          renderer.dispose();
+          material.dispose();
+          geometry.dispose();
+          host.remove();
+        },
+      };
+    },
+  });
+}

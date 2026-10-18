@@ -351,3 +351,30 @@ again, including independently configured still destinations.
 Memory limits describe retained/encoded output ceilings, not predicted file sizes
 or total GPU/browser memory. Successful preflight cannot guarantee future disk,
 network, or device availability; execution errors still use normal diagnostics.
+
+## Testing custom adapters
+
+`runAdapterContract` from `three-recording-studio/testing` is a test-framework-free
+conformance runner. Supply a job spanning at least two frames and
+`createFixture(scenario)` returning fresh animation/capture adapters, an
+`assertFrame(frame, context)` callback, and `assertRestored()`.
+
+The default scenarios cover completion, cancellation after a captured frame,
+failed persistence, failure after preparation, and failure after readiness.
+Explicitly include `hidden-view` and supply `detachView()` to exercise pane
+removal during capture. Missing detach hooks fail that scenario rather than
+silently skipping it. Optional fixture `dispose()` releases renderer/DOM resources
+after the harness disposes the capture adapter.
+
+Inspect `report.passed` and `report.cases` in your test runner. The harness verifies
+state, capture order/count, and exactly one finish/restore, but your callbacks must
+assert domain meaning: expected pixels/color/orientation, evaluated simulation
+time, camera state, renderer dimensions, playback locks, and resource restoration.
+A matching session status alone is insufficient. Cleanup assertions run even when
+capture fails. Use your test runner's timeout to detect uncooperative hooks;
+JavaScript cannot forcibly interrupt arbitrary GPU/application work.
+
+The browser test fixture in `demo/test-harness.ts` runs this same contract against
+both built-in adapters, including hidden views. `npm run test:packed` additionally
+runs it from an installed package with Three.js physically absent, ensuring a
+custom renderer integration can use the public core/testing interfaces alone.
