@@ -2,7 +2,7 @@
 
 Three Recording Studio adds an export workflow to an existing Three.js scene. It does not create an animation system or replace your renderer. Your application supplies explicit control over scene time.
 
-The initial release supports Three.js 0.186.x, WebGLRenderer and native WebGPURenderer. The package is ESM with TypeScript declarations. The UI is optional. React, Quilt and Theatre are not required by the library.
+The Three.js adapters support Three.js 0.186.x, WebGLRenderer and native WebGPURenderer. The package is ESM with TypeScript declarations. The UI is optional. React, Quilt and Theatre are not required by the library.
 
 ```sh
 npm install three-recording-studio three@~0.186.1

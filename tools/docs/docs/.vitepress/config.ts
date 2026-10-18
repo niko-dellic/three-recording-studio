@@ -1,4 +1,5 @@
 import { defineConfig } from "vitepress";
+import { version } from "../../../../package.json";
 export default defineConfig({
   base: "/",
   cleanUrls: true,
@@ -68,7 +69,7 @@ export default defineConfig({
       },
     ],
     footer: {
-      message: "Three Recording Studio · 0.2.0",
+      message: `Three Recording Studio · ${version}`,
       copyright: "MIT licensed",
     },
     nav: [

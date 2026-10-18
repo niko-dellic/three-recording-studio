@@ -8,7 +8,7 @@ Start the companion in a terminal:
 npx three-recording-receiver --directory ./recordings
 ```
 
-For an unpublished checkout use `npm run receiver -- --directory ./recordings`. The receiver prints a WebSocket URL and token. It listens on loopback, not the external network. Default accepted browser origins use `127.0.0.1` or `localhost` on ports 5187, 5190, and 5191.
+When developing from a source checkout, use `npm run receiver -- --directory ./recordings`. The receiver prints a WebSocket URL and token. It listens on loopback, not the external network. Default accepted browser origins use `127.0.0.1` or `localhost` on ports 5187, 5190, and 5191.
 
 ```sh
 npx three-recording-receiver --port 8787 --directory ./recordings \

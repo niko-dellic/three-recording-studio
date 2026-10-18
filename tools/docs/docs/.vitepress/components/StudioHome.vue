@@ -1,5 +1,6 @@
 <script setup>
 import { ref } from "vue";
+import { version } from "../../../../../package.json";
 const copied = ref(false);
 const copyError = ref("");
 async function copy() {
@@ -38,7 +39,11 @@ async function copy() {
           </button>
         </div>
         <p role="status">{{ copyError }}</p>
-        <small>Version 0.1.0. Not yet available on npm.</small>
+        <small
+          >Version {{ version }}. Available on
+          <a href="https://www.npmjs.com/package/three-recording-studio">npm</a
+          >.</small
+        >
       </div>
     </div>
     <a
