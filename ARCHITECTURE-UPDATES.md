@@ -13,7 +13,7 @@ Target release: 0.2.0 (new public APIs; final version checked against npm before
 - [x] 6. Shared resolution and timeline mapping utilities.
 - [x] 7. Unified preview/fullscreen ownership, independent of session lifetime.
 - [x] 8. Frame-boundary validation and structured diagnostics.
-- [ ] 9. Encoding/storage composition, buffered default and supported streaming.
+- [x] 9. Encoding/storage composition, buffered default and supported streaming.
 - [ ] 10. Reusable adapter contracts and consumer regression harness.
 - [ ] 11. Complete runnable integration recipes and lifecycle documentation.
 - [x] 12. Renderer-neutral and narrow capture entry points.
@@ -70,3 +70,10 @@ verification. No npm publication until all work and release gates are complete.
    Controller inspections follow edits and discard stale probes; UI applies support
    constraints. Typecheck, 35 targeted unit tests and five Chrome cases pass,
    including native WebGPU/WebGL, MP4 encoding and capability-driven feedback.
+
+10. Encoding/storage composition: FileStorage supports memory, fresh folders,
+    receiver and custom backend implementations for PNG/MP4; MP4 remains buffered
+    by default with explicit fragmented streaming for capable storage. Stream
+    cancellation aborts rather than commits files. Build/typecheck, 11 storage/
+    receiver/memory unit cases, eight Chrome format/storage/stream regressions,
+    and clean packed installation pass. Cleanup changes rechecked in three cases.

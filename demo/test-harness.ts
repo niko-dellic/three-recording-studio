@@ -253,3 +253,136 @@ export async function inspectVideo(blob: Blob) {
     input.dispose();
   }
 }
+
+export async function verifyComposedOutput(
+  streaming: boolean,
+  failure?: "cancel" | "write",
+) {
+  const { createRecordingDestination, MemoryFileStorage } =
+    await import("three-recording-studio/destinations");
+  const pixels = new Uint8Array(64 * 64 * 4);
+  let restored = false,
+    streamClosed = 0,
+    streamAborted = 0,
+    storageAborted = 0,
+    writes = 0,
+    position = 0;
+  const chunks: Uint8Array<ArrayBuffer>[] = [];
+  const session = new RenderSession({
+    animation: {
+      acquire() {},
+      seek({ frame }) {
+        for (let i = 0; i < pixels.length; i += 4) {
+          pixels[i] = frame * 20;
+          pixels[i + 3] = 255;
+        }
+      },
+      restore() {
+        restored = true;
+      },
+    },
+    capture: {
+      prepare() {},
+      async capture() {
+        return { pixels, width: 64, height: 64 };
+      },
+      finish() {},
+      dispose() {},
+    },
+  });
+  const memory = new MemoryFileStorage();
+  const storage = streaming
+    ? {
+        async open() {
+          return new Set<number>();
+        },
+        async write() {
+          throw new Error("Streaming must not buffer a completed file");
+        },
+        async openStream() {
+          return new WritableStream<
+            import("three-recording-studio/destinations").FileChunk
+          >({
+            async write(chunk) {
+              writes++;
+              if (failure === "write") throw new Error("Disk disconnected");
+              if (chunk.position !== position)
+                throw new Error("Nonsequential fragmented MP4");
+              await new Promise((resolve) => setTimeout(resolve, 3));
+              chunks.push(chunk.data.slice());
+              position += chunk.data.byteLength;
+              if (failure === "cancel") session.cancel();
+            },
+            close() {
+              streamClosed++;
+            },
+            abort() {
+              streamAborted++;
+            },
+          });
+        },
+        async close() {},
+        async abort() {
+          storageAborted++;
+        },
+      }
+    : memory;
+  let error = "";
+  try {
+    await session.start(
+      {
+        id: "composed",
+        contentId: "test",
+        width: 64,
+        height: 64,
+        fps: 10,
+        startFrame: 0,
+        endFrame: 9,
+      },
+      await createRecordingDestination({ format: "mp4", storage, streaming }),
+    );
+  } catch (reason) {
+    error = String(reason);
+  }
+  const state = session.status.state;
+  await session.dispose();
+  if (failure)
+    return {
+      state,
+      error,
+      restored,
+      streamClosed,
+      streamAborted,
+      storageAborted,
+      writes,
+    };
+  const blob = streaming
+    ? new Blob(chunks, { type: "video/mp4" })
+    : memory.getFiles()[0].blob;
+  const input = new Input({
+    source: new BlobSource(blob),
+    formats: ALL_FORMATS,
+  });
+  try {
+    const video = (await input.getPrimaryVideoTrack())!;
+    const times: number[] = [];
+    for await (const sample of new VideoSampleSink(video).samples()) {
+      times.push(sample.timestamp);
+      sample.close();
+    }
+    return {
+      state,
+      error,
+      restored,
+      streamClosed,
+      streamAborted,
+      storageAborted,
+      writes,
+      width: video.displayWidth,
+      height: video.displayHeight,
+      times,
+    };
+  } finally {
+    input.dispose();
+  }
+}

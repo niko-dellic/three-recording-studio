@@ -20,3 +20,6 @@ export * from "./core/results.js";
 export * from "./core/thumbnail.js";
 
 export * from "./core/capabilities.js";
+
+export * from "./destinations/storage.js";
+export * from "./destinations/composed.js";

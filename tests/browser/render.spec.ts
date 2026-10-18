@@ -1735,3 +1735,172 @@ test("capability inspection drives opaque output and dimension feedback before r
     await page.evaluate(() => (window as any).trsDemo.session.status.state),
   ).toBe("idle");
 });
+
+for (const streaming of [false, true])
+  test(`composed MP4 ${streaming ? "streaming" : "buffered"} storage preserves every frame`, async ({
+    page,
+  }) => {
+    await page.goto("/demo/?backend=webgl");
+    const result = await page.evaluate(async (streaming) => {
+      const module = await import(String("/demo/test-harness.ts"));
+      return module.verifyComposedOutput(streaming);
+    }, streaming);
+    expect(result.error).toBe("");
+    expect(result.state).toBe("completed");
+    expect(result.restored).toBe(true);
+    expect(result.width).toBe(64);
+    expect(result.height).toBe(64);
+    expect(result.times).toHaveLength(10);
+    result.times.forEach((time: number, index: number) =>
+      expect(time).toBeCloseTo(index / 10, 5),
+    );
+    expect(result.streamAborted).toBe(0);
+    if (streaming) {
+      expect(result.streamClosed).toBe(1);
+      expect(result.writes).toBeGreaterThan(0);
+    }
+  });
+
+for (const failure of ["cancel", "write"] as const)
+  test(`streamed MP4 ${failure} restores the scene and does not commit the file`, async ({
+    page,
+  }) => {
+    await page.goto("/demo/?backend=webgl");
+    const result = await page.evaluate(async (failure) => {
+      const module = await import(String("/demo/test-harness.ts"));
+      return module.verifyComposedOutput(true, failure);
+    }, failure);
+    expect(result.state).toBe(failure === "cancel" ? "cancelled" : "failed");
+    expect(result.restored).toBe(true);
+    expect(result.streamClosed).toBe(0);
+    expect(result.storageAborted).toBe(1);
+    if (failure === "write")
+      expect(result.error).toContain("Disk disconnected");
+  });
+
+test("composed PNG and buffered/streamed MP4 write real browser folder files", async ({
+  page,
+}) => {
+  await page.goto("/demo/?backend=webgl");
+  await page.waitForFunction(() => !!(window as any).trsDemo);
+  const files = await page.evaluate(async () => {
+    const { createRecordingDestination, DirectoryFileStorage } = await import(
+      String("/demo/component-harness.ts")
+    );
+    const root = await navigator.storage.getDirectory();
+    const name = `composed-${crypto.randomUUID()}`;
+    const directory = await root.getDirectoryHandle(name, { create: true });
+    const files: { name: string; size: number; header: number[] }[] = [];
+    try {
+      for (const [format, streaming] of [
+        ["png", false],
+        ["mp4", false],
+        ["mp4", true],
+      ] as const) {
+        const destination = await createRecordingDestination({
+          format,
+          streaming,
+          storage: new DirectoryFileStorage(directory),
+        });
+        await (window as any).trsDemo.session.start(
+          {
+            id: `${format}-${streaming}`,
+            contentId: "test",
+            width: 64,
+            height: 32,
+            fps: 30,
+            startFrame: 0,
+            endFrame: 0,
+          },
+          destination,
+        );
+      }
+      for await (const folder of (directory as any).values())
+        for await (const handle of folder.values()) {
+          const file = await handle.getFile();
+          files.push({
+            name: file.name,
+            size: file.size,
+            header: [...new Uint8Array(await file.slice(0, 8).arrayBuffer())],
+          });
+        }
+      return files;
+    } finally {
+      await root.removeEntry(name, { recursive: true });
+    }
+  });
+  expect(files).toHaveLength(3);
+  expect(files.find((file) => file.name.endsWith(".png"))!.header).toEqual([
+    137, 80, 78, 71, 13, 10, 26, 10,
+  ]);
+  for (const file of files.filter((file) => file.name.endsWith(".mp4"))) {
+    expect(file.header.slice(4)).toEqual([102, 116, 121, 112]);
+    expect(file.size).toBeGreaterThan(100);
+  }
+});
+
+test("composed PNG and MP4 use the same receiver storage contract", async ({
+  page,
+}) => {
+  const { mkdtemp, readFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  // @ts-expect-error standalone receiver ESM
+  const { createReceiver } = await import("../../bin/receiver.mjs");
+  const directory = await mkdtemp(join(tmpdir(), "trs-composed-"));
+  const receiver = await createReceiver({
+    directory,
+    port: 0,
+    token: "composed-token",
+  });
+  try {
+    await page.goto("/demo/?backend=webgl");
+    await page.waitForFunction(() => !!(window as any).trsDemo);
+    await page.evaluate(async (port) => {
+      const { createRecordingDestination, ReceiverFileStorage } = await import(
+        String("/demo/component-harness.ts")
+      );
+      for (const format of ["png", "mp4"]) {
+        const storage = new ReceiverFileStorage({
+          url: `ws://127.0.0.1:${port}`,
+          token: "composed-token",
+        });
+        await (window as any).trsDemo.session.start(
+          {
+            id: `composed-${format}`,
+            contentId: "test",
+            width: 64,
+            height: 32,
+            fps: 30,
+            startFrame: 0,
+            endFrame: 0,
+          },
+          await createRecordingDestination({ format, storage }),
+        );
+      }
+    }, receiver.port);
+    for (const format of ["png", "mp4"]) {
+      const manifest = JSON.parse(
+        await readFile(
+          join(directory, `composed-${format}`, "manifest.json"),
+          "utf8",
+        ),
+      );
+      expect(manifest.complete).toBe(true);
+      if (format === "png") expect(Object.keys(manifest.frames)).toEqual(["0"]);
+      else
+        expect(
+          (
+            await readFile(
+              join(directory, `composed-${format}`, manifest.file.file),
+            )
+          )
+            .subarray(4, 8)
+            .toString(),
+        ).toBe("ftyp");
+    }
+  } finally {
+    await receiver.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});

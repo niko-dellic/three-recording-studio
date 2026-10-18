@@ -70,3 +70,75 @@ Select **Save to → Receiver**, then enter the URL and token printed by the com
 **Render image** always produces a PNG, saves it to the selected destination, and retains it in the channel preview.
 
 The library exports `MemorySequenceDestination`, `DirectoryDestination(directoryHandle)`, and `saveFileToDirectory(directoryHandle, job, blob, signal)`. Call `showDirectoryPicker({mode: "readwrite"})` from a user click. For MP4 receiver saving, call `WebSocketDestination.saveMp4(job, blob, signal)` with the finalized blob from `Mp4Destination.onComplete`.
+
+## Composing format and storage
+
+Choose the encoder independently from where encoded files go:
+
+```ts
+import {
+  createRecordingDestination,
+  DirectoryFileStorage,
+  MemoryFileStorage,
+  ReceiverFileStorage,
+} from "three-recording-studio/destinations";
+
+const storage = new DirectoryFileStorage(selectedDirectory);
+const destination = await createRecordingDestination({
+  format: "mp4", // or "png"
+  storage,
+});
+await session.start(job, destination);
+```
+
+`MemoryFileStorage` retains either format with a configurable `maxBytes` ceiling
+(default 128 MiB), exposes `getFiles()`, and supports an `onComplete(files)` callback.
+PNG files are individual encoded frames. Use `MemorySequenceDestination` when
+ZIP generation and sequence playback are desired as a convenience.
+`DirectoryFileStorage` writes each run to a fresh folder.
+`ReceiverFileStorage({url, token})` uses the included authenticated receiver;
+PNG writes are acknowledged and resumable, while MP4 uploads a finalized file
+with the receiver's 256 MiB file limit. Existing destination classes remain
+compatible.
+
+Custom backend storage implements `FileStorage`: `open(job, format, signal)`,
+`write({filename, blob, frame?}, signal)`, `close()`, and `abort(reason)`.
+`open` returns durably stored frame indices for resumable PNG output, or an empty
+set. An optional read-only `check` reports configuration problems before opening.
+Every write is awaited, so slower storage applies backpressure. Storage must
+honor cancellation and release partially acquired resources in `abort`.
+Backend URLs, authentication, metadata schemas, and remote deletion policy belong
+to the application.
+
+MP4 uses buffered encoding by default (256 MiB ceiling, configurable with
+`maxBytes`). A completed blob can be played locally, uploaded, or downloaded.
+For independent save retries, encode into memory, retain the completed file in
+`RenderResults`, and invoke `results.save()` separately. Direct-to-storage export
+fails the session if persistence fails; streaming cannot offer a complete local
+blob for retry without retaining an additional copy.
+
+## Explicit MP4 streaming
+
+```ts
+const destination = await createRecordingDestination({
+  format: "mp4",
+  storage: new DirectoryFileStorage(selectedDirectory),
+  streaming: true,
+});
+```
+
+Streaming requires `storage.openStream(filename, signal)` returning a
+`WritableStream<FileChunk>`. Each chunk contains `{type: "write", data, position}`.
+The encoder uses fragmented MP4 so writes are sequential, with stream
+backpressure propagated to encoding. Fragmented MP4 is less broadly compatible
+than the default regular MP4; choose it explicitly for long recordings and a
+compatible downstream player. Memory storage and the bundled receiver do not
+support streaming. Custom backends may implement it if their upload protocol
+supports incremental writes and cancellation.
+
+The streaming path does not allocate a full output-file buffer. Encoders, frame
+buffers, and muxer fragments still consume memory. Streaming has no default total
+file-size ceiling; an explicit `maxBytes` limits output bytes. It cannot be paired
+with the legacy `onComplete(blob)` callback. Successful finalization commits the
+stream; cancellation aborts it rather than committing an incomplete file. Storage
+implementations remain responsible for cleaning up partial remote uploads.

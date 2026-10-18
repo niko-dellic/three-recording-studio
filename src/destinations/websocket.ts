@@ -143,12 +143,15 @@ export class WebSocketDestination implements RenderDestination {
   }
   async write(frame: CapturedFrame, context: FrameContext) {
     const png = await pngBlob(frame);
-    context.signal.throwIfAborted();
+    await this.writePng(png, context.frame, context.signal);
+  }
+  async writePng(png: Blob, frame: number, signal: AbortSignal) {
+    signal.throwIfAborted();
     // Four-byte little-endian frame index followed by PNG bytes.
     const header = new ArrayBuffer(4);
-    new DataView(header).setUint32(0, context.frame, true);
+    new DataView(header).setUint32(0, frame, true);
     const response = await this.request(new Blob([header, png]));
-    if (response.type !== "saved" || response.frame !== context.frame)
+    if (response.type !== "saved" || response.frame !== frame)
       throw new Error("Receiver acknowledged a different frame");
   }
   async close() {
