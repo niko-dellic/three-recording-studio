@@ -19,7 +19,7 @@ Target release: 0.2.0 (new public APIs; final version checked against npm before
 - [x] 12. Renderer-neutral and narrow capture entry points.
 - [x] Migrate and verify PreFORM without private input selectors/events or hidden settings CSS.
 - [x] Final unit/browser/package/site/format/type/build/security checks, clean release commit/tag.
-- [ ] Publish npm, verify registry installation and release artifacts.
+- [x] Publish npm, verify registry installation and release artifacts.
 
 ## Evidence
 
@@ -103,3 +103,9 @@ verification. No npm publication until all work and release gates are complete.
     type/build, static-site navigation and formatting all pass.
 
 PreFORM migration committed as `28d5615f`; final 0.2.0 consumer typecheck, 15 focused tests and production build pass.
+
+15. Published 0.2.0 from `b273235` / `v0.2.0`. Registry integrity matches the tested
+    archive. Fresh npm installation verifies core/UI/capture/encoding/storage/testing,
+    receiver startup and renderer-neutral imports without Three.js. Public static-site
+    browser checks pass, including the demo and both runnable recipes. GitHub release
+    carries the same tested archive.

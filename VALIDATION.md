@@ -1,6 +1,6 @@
 # Validation — 18 October 2026
 
-Release candidate: `three-recording-studio@0.2.0`. Repository: https://github.com/niko-dellic/three-recording-studio. Documentation and demo: https://three-recording-studio.vercel.app.
+Published: [`three-recording-studio@0.2.0`](https://www.npmjs.com/package/three-recording-studio/v/0.2.0), from `b273235` / `v0.2.0`. Repository: https://github.com/niko-dellic/three-recording-studio. Documentation and demo: https://three-recording-studio.vercel.app.
 
 ## Verified release checks
 
@@ -12,7 +12,7 @@ Release candidate: `three-recording-studio@0.2.0`. Repository: https://github.co
 - Documentation guide TypeScript examples compile against the current package declarations.
 - `npm publish --dry-run --json`: validates the public 0.2.0 payload without uploading it.
 - `npm audit --omit=dev`: zero reported production dependency vulnerabilities at verification time.
-- Publication and registry installation are verified separately after the release gates.
+- Fresh npm registry installation verifies all entry points, optional MP4 encoding, receiver startup, and renderer-neutral imports without Three.js.
 
 ## Covered behavior
 
@@ -62,3 +62,6 @@ A fresh registry install of `three-recording-studio@0.2.0` with Three.js 0.186.1
 - PreFORM's broad `npm run check` passes architecture/unused checks but stops in unrelated replica Python tooling because `shapely` is absent. Recording-specific validation is recorded independently.
 
 PreFORM: both backend recording browser cases and all 15 focused unit tests passed; dark/light/narrow screenshots reviewed.
+
+Registry integrity: `sha512-Co14nSN+KoeFw5TC7QNxvV9h5+jxRp6CaiHY61VXLCci/WhHmN63y2azPXH5USlWal5Ott35ETc+zeJC9Rn6Bw==`.
+The public deployment passes the same static-site browser checks, including both runnable recipes.

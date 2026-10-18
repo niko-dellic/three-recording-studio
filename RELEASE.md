@@ -1,6 +1,6 @@
 # Releasing 0.2.0
 
-Version 0.2.0 adds public integration APIs while preserving existing root imports and RenderPanel. See [VALIDATION.md](VALIDATION.md) for verified scope and known limitations. The prior 0.1.0 release was published on 16 October 2026.
+Version 0.2.0 was published on 18 October 2026 from `b273235` / `v0.2.0`. It adds public integration APIs while preserving existing root imports and RenderPanel. See [VALIDATION.md](VALIDATION.md) for verified scope and known limitations. The prior 0.1.0 release was published on 16 October 2026.
 
 ## Verify the candidate
 
