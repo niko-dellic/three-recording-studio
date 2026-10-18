@@ -12,6 +12,7 @@ import {
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import type {
   CaptureAdapter,
+  PreparationContext,
   FrameContext,
   RenderSettings,
 } from "../core/types.js";
@@ -46,8 +47,7 @@ export class WebGLCaptureAdapter implements CaptureAdapter {
         "gl_FragColor = texture2D( tDiffuse, vUv ); gl_FragColor.rgb = gl_FragColor.a > 0.0 ? gl_FragColor.rgb / gl_FragColor.a : vec3(0.0);",
       );
   }
-  prepare(settings: RenderSettings) {
-    this.finish();
+  check(settings: RenderSettings) {
     const { renderer } = this.options;
     if (renderer.getContext().isContextLost())
       throw new Error("WebGL context is lost");
@@ -61,6 +61,12 @@ export class WebGLCaptureAdapter implements CaptureAdapter {
     );
     if (settings.width > max || settings.height > max)
       throw new Error(`Output exceeds WebGL limit ${max}`);
+  }
+  prepare(settings: RenderSettings, context?: PreparationContext) {
+    context?.signal.throwIfAborted();
+    this.check(settings);
+    this.finish();
+    const { renderer } = this.options;
     this.settings = { ...settings };
     this.linear = new WebGLRenderTarget(settings.width, settings.height, {
       type: HalfFloatType,

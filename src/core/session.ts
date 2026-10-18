@@ -1,6 +1,7 @@
 import type {
   CapturedFrame,
   Progress,
+  PreparationContext,
   RenderDestination,
   RenderJob,
   SessionOptions,
@@ -46,6 +47,7 @@ export class RenderSession {
   >();
   private controller?: AbortController;
   private pending?: Promise<void>;
+  private disposing?: Promise<void>;
   private pauseRequested = false;
   private wake?: () => void;
   private progress: Progress = {
@@ -86,7 +88,7 @@ export class RenderSession {
     }
   }
   start(job: RenderJob, destination: RenderDestination): Promise<void> {
-    if (this.pending || this.progress.state === "disposed")
+    if (this.pending || this.disposing || this.progress.state === "disposed")
       return Promise.reject(new Error("Session is busy or disposed"));
     try {
       validateJob(job);
@@ -148,8 +150,21 @@ export class RenderSession {
     const started = performance.now();
     let snapshot: unknown;
     let acquired = false;
-    let failure: unknown;
+    const failures: unknown[] = [];
     let cleanupFailed = false;
+    let destinationAttempted = false;
+    let captureAttempted = false;
+    const deferred: Array<() => void | Promise<void>> = [];
+    const preparation: PreparationContext = {
+      signal,
+      defer(cleanup) {
+        deferred.push(cleanup);
+      },
+    };
+    const cleanupFailure = (message: string, cause: unknown) => {
+      cleanupFailed = true;
+      failures.push(new Error(message, { cause }));
+    };
     let rendered = 0;
     const total = job.endFrame - job.startFrame + 1;
     this.publish({
@@ -163,12 +178,16 @@ export class RenderSession {
     });
     try {
       signal.throwIfAborted();
+      await this.options.capture.check?.(job, { signal });
+      signal.throwIfAborted();
+      destinationAttempted = true;
       const saved = await destination.open(job, signal);
       signal.throwIfAborted();
-      await this.options.capture.prepare(job);
-      signal.throwIfAborted();
-      snapshot = await this.options.animation.acquire();
+      snapshot = await this.options.animation.acquire(preparation);
       acquired = true;
+      signal.throwIfAborted();
+      captureAttempted = true;
+      await this.options.capture.prepare(job, preparation);
       signal.throwIfAborted();
       const completed = [...saved].filter(
         (f) => f >= job.startFrame && f <= job.endFrame,
@@ -221,39 +240,46 @@ export class RenderSession {
       await destination.close();
       signal.throwIfAborted();
     } catch (error) {
-      failure = error;
-      try {
-        await destination.abort(error);
-      } catch (cleanup) {
-        failure = new AggregateError(
-          [error, cleanup],
-          "Export and destination cleanup failed",
-        );
+      failures.push(error);
+      if (destinationAttempted) {
+        try {
+          await destination.abort(error);
+        } catch (error) {
+          cleanupFailure("Destination cleanup failed", error);
+        }
       }
     } finally {
-      try {
-        await this.options.capture.finish();
-      } catch (error) {
-        failure = error;
-        cleanupFailed = true;
+      if (captureAttempted) {
+        try {
+          await this.options.capture.finish();
+        } catch (error) {
+          cleanupFailure("Capture cleanup failed", error);
+        }
       }
       if (acquired) {
         try {
           await this.options.animation.restore(snapshot);
         } catch (error) {
-          failure = new Error("Application state restoration failed", {
-            cause: error,
-          });
-          cleanupFailed = true;
+          cleanupFailure("Application state restoration failed", error);
+        }
+      }
+      for (const cleanup of deferred.reverse()) {
+        try {
+          await cleanup();
+        } catch (error) {
+          cleanupFailure("Deferred resource cleanup failed", error);
         }
       }
     }
-    if (failure) {
-      const cancelled =
-        signal.aborted &&
-        !cleanupFailed &&
-        !(failure instanceof AggregateError) &&
-        !(failure instanceof Error && failure.message.includes("restoration"));
+    if (failures.length) {
+      const failure =
+        failures.length === 1
+          ? failures[0]
+          : new AggregateError(
+              failures,
+              failures.map((error) => String(error)).join("; "),
+            );
+      const cancelled = signal.aborted && !cleanupFailed;
       this.publish({
         state: cancelled ? "cancelled" : "failed",
         error: cancelled ? undefined : String(failure),
@@ -268,12 +294,20 @@ export class RenderSession {
         etaMs: 0,
       });
   }
-  async dispose() {
+  dispose(): Promise<void> {
+    if (this.disposing) return this.disposing;
+    // Close admission synchronously, before cancellation notifies subscribers.
+    this.disposing = Promise.resolve().then(async () => {
+      await this.pending?.catch(() => {});
+      try {
+        await this.options.capture.dispose();
+      } finally {
+        this.publish({ state: "disposed" });
+        this.listeners.clear();
+        this.frameListeners.clear();
+      }
+    });
     this.cancel();
-    await this.pending?.catch(() => {});
-    await this.options.capture.dispose();
-    this.publish({ state: "disposed" });
-    this.listeners.clear();
-    this.frameListeners.clear();
+    return this.disposing;
   }
 }

@@ -23,9 +23,17 @@ export interface FrameContext {
   delta: number;
   signal: AbortSignal;
 }
+/** Per-run cooperative cancellation and cleanup for partially acquired resources.
+ * Deferred callbacks run once, in reverse order, after finish/restore. They should
+ * release only resources they own, and tolerate any earlier normal cleanup.
+ */
+export interface PreparationContext {
+  readonly signal: AbortSignal;
+  defer(cleanup: () => void | Promise<void>): void;
+}
 /** The application owns scene time. acquire() must stop all writers of animated state. */
 export interface AnimationAdapter {
-  acquire(): unknown | Promise<unknown>;
+  acquire(context?: PreparationContext): unknown | Promise<unknown>;
   seek(context: FrameContext): void | Promise<void>;
   ready?(context: FrameContext): void | Promise<void>;
   restore(snapshot: unknown): void | Promise<void>;
@@ -37,7 +45,15 @@ export interface CapturedFrame {
   height: number;
 }
 export interface CaptureAdapter {
-  prepare(settings: RenderSettings): void | Promise<void>;
+  /** Optional read-only preflight, before destination opening or scene acquisition. */
+  check?(
+    settings: RenderSettings,
+    context: Pick<PreparationContext, "signal">,
+  ): void | Promise<void>;
+  prepare(
+    settings: RenderSettings,
+    context?: PreparationContext,
+  ): void | Promise<void>;
   capture(context: FrameContext): Promise<CapturedFrame>;
   finish(): void | Promise<void>;
   dispose(): void | Promise<void>;

@@ -6,7 +6,7 @@ publish a tested npm release. Existing imports and RenderPanel remain compatible
 Target release: 0.2.0 (new public APIs; final version checked against npm before publishing).
 
 - [x] 1. Public, framework-independent recording settings model; panel binding.
-- [ ] 2. Cooperative acquisition/preparation cancellation and reliable cleanup.
+- [x] 2. Cooperative acquisition/preparation cancellation and reliable cleanup.
 - [ ] 3. Composable preview, settings, transport, progress, and extension points.
 - [ ] 4. Shared render results, retention, thumbnails, and independent saving/retry.
 - [ ] 5. Capability discovery and preflight validation.
@@ -26,6 +26,11 @@ Target release: 0.2.0 (new public APIs; final version checked against npm before
 1. Settings unit tests plus existing session tests: 21 passed. Chrome public-settings
    and existing timelapse tests: 2 passed. Typecheck passed. The settings model
    supports editable drafts; execution validation remains in validateJob/start.
+
+2. Lifecycle/settings tests: 27 passed; typecheck passed. Four real Chrome
+   WebGL/WebGPU capture tests passed, including 4K readback, alpha, frame order,
+   slow persistence, and renderer restoration. Added acquisition cancellation,
+   partial preparation cleanup, multi-error preservation, and disposal regressions.
 
 Do not consider individual checkboxes a substitute for final requirement-by-requirement
 verification. No npm publication until all work and release gates are complete.

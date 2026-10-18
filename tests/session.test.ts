@@ -217,6 +217,10 @@ it("samples scene time independently of output FPS, including resumed frames", a
   );
   expect(s.capture.prepare).toHaveBeenCalledWith(
     expect.objectContaining({ fps: 30 }),
+    expect.objectContaining({
+      signal: expect.any(AbortSignal),
+      defer: expect.any(Function),
+    }),
   );
 });
 it("uses fractional scene intervals for previews", async () => {
@@ -236,3 +240,96 @@ it.each([0, -1, NaN, Infinity])(
     expect(s.events).toEqual([]);
   },
 );
+
+it("owns animation before capture preparation and restores after partial preparation failure", async () => {
+  const s = setup();
+  const cleanup = vi.fn();
+  s.capture.prepare = async (_, context) => {
+    expect(s.events).toEqual(["acquire"]);
+    context!.defer(cleanup);
+    throw new Error("partial allocation");
+  };
+  await expect(s.session.start(job, s.destination)).rejects.toThrow(
+    "partial allocation",
+  );
+  expect(s.capture.finish).toHaveBeenCalledOnce();
+  expect(s.animation.restore).toHaveBeenCalledWith(9);
+  expect(cleanup).toHaveBeenCalledOnce();
+});
+it("cancels cooperative preparation and releases partially acquired resources in reverse order", async () => {
+  const s = setup();
+  const released: number[] = [];
+  s.animation.acquire = async (context) => {
+    context!.defer(() => {
+      released.push(1);
+    });
+    context!.defer(() => {
+      released.push(2);
+    });
+    s.session.cancel();
+    context!.signal.throwIfAborted();
+  };
+  await s.session.start(job, s.destination);
+  expect(s.session.status.state).toBe("cancelled");
+  expect(released).toEqual([2, 1]);
+  expect(s.capture.prepare).not.toHaveBeenCalled();
+  expect(s.capture.finish).not.toHaveBeenCalled();
+  expect(s.animation.restore).not.toHaveBeenCalled();
+});
+it("aborts an in-flight capture preparation through the shared signal", async () => {
+  const s = setup();
+  let preparing = false;
+  s.capture.prepare = (_, context) =>
+    new Promise((_, reject) => {
+      preparing = true;
+      context!.signal.addEventListener(
+        "abort",
+        () => reject(context!.signal.reason),
+        { once: true },
+      );
+    });
+  const running = s.session.start(job, s.destination);
+  await vi.waitFor(() => expect(preparing).toBe(true));
+  s.session.cancel();
+  await running;
+  expect(s.session.status.state).toBe("cancelled");
+  expect(s.animation.restore).toHaveBeenCalledOnce();
+  expect(s.capture.finish).toHaveBeenCalledOnce();
+});
+it("retains the original error and all cleanup failures", async () => {
+  const s = setup();
+  const original = new Error("readback failed");
+  vi.mocked(s.capture.capture).mockRejectedValue(original);
+  vi.mocked(s.destination.abort).mockRejectedValue(new Error("abort failed"));
+  vi.mocked(s.capture.finish).mockRejectedValue(new Error("target failed"));
+  vi.mocked(s.animation.restore).mockRejectedValue(new Error("restore failed"));
+  const failure = await s.session
+    .start(job, s.destination)
+    .catch((error) => error);
+  expect(failure).toBeInstanceOf(AggregateError);
+  expect(failure.errors).toHaveLength(4);
+  expect(failure.errors[0]).toBe(original);
+  expect(failure.errors[1].cause.message).toBe("abort failed");
+  expect(failure.errors[2].cause.message).toBe("target failed");
+  expect(failure.errors[3].cause.message).toBe("restore failed");
+});
+it("preflights without taking scene ownership or opening the destination", async () => {
+  const s = setup();
+  s.capture.check = () => {
+    throw new Error("unsupported resolution");
+  };
+  await expect(s.session.start(job, s.destination)).rejects.toThrow(
+    "unsupported resolution",
+  );
+  expect(s.destination.open).not.toHaveBeenCalled();
+  expect(s.capture.finish).not.toHaveBeenCalled();
+  expect(s.events).toEqual([]);
+});
+it("disposal is idempotent and synchronously rejects new jobs", async () => {
+  const s = setup();
+  const disposing = s.session.dispose();
+  expect(s.session.dispose()).toBe(disposing);
+  await expect(s.session.start(job, s.destination)).rejects.toThrow("disposed");
+  await disposing;
+  expect(s.capture.dispose).toHaveBeenCalledOnce();
+});

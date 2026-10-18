@@ -10,6 +10,7 @@ import {
 } from "three";
 import type {
   CaptureAdapter,
+  PreparationContext,
   FrameContext,
   RenderSettings,
 } from "../core/types.js";
@@ -33,9 +34,13 @@ export class WebGPUCaptureAdapter implements CaptureAdapter {
   private target?: RenderTarget;
   private settings?: RenderSettings;
   constructor(private readonly options: WebGPUCaptureOptions) {}
-  async prepare(settings: RenderSettings) {
-    this.finish();
+  async check(
+    settings: RenderSettings,
+    context?: Pick<PreparationContext, "signal">,
+  ) {
+    context?.signal.throwIfAborted();
     await this.options.renderer.init();
+    context?.signal.throwIfAborted();
     const backend = this.options.renderer.backend as unknown as {
       isWebGPUBackend?: boolean;
       device?: { limits: { maxTextureDimension2D: number } };
@@ -47,6 +52,10 @@ export class WebGPUCaptureAdapter implements CaptureAdapter {
     const max = backend.device?.limits.maxTextureDimension2D ?? 8192;
     if (settings.width > max || settings.height > max)
       throw new Error(`Output exceeds WebGPU limit ${max}`);
+  }
+  async prepare(settings: RenderSettings, context?: PreparationContext) {
+    await this.check(settings, context);
+    this.finish();
     this.settings = { ...settings };
     this.target = new RenderTarget(settings.width, settings.height, {
       type: UnsignedByteType,

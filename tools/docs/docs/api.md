@@ -143,3 +143,26 @@ panel.updateSettings({ sampleIntervalSeconds: undefined });
 The model holds editable drafts, including temporarily invalid numbers while typing.
 `validateJob` and `session.start` validate the execution snapshot. A render already
 in progress keeps its original job; subsequent settings edits affect future jobs.
+
+### Preparation ownership and cancellation
+
+The lifecycle is: validate job → optional read-only `capture.check(job, {signal})`
+→ destination open → animation acquire → capture prepare → frames → destination
+close → capture finish → animation restore → deferred cleanup. Acquisition happens
+before capture preparation so live animation/render writers cannot race export setup.
+
+`acquire(context?)` and `prepare(settings, context?)` receive a shared
+`PreparationContext` with `signal` and `defer(cleanup)`. Existing adapters that ignore
+these extra arguments continue to work. Pass the signal into asynchronous waits;
+cancellation is cooperative and cannot forcibly interrupt third-party GPU calls.
+Register rollback immediately after acquiring each resource when a later step can
+fail. Deferred callbacks run exactly once in reverse registration order on success,
+failure, or cancellation, after normal finish/restore. Make resource releases safe
+if normal cleanup already released them. An acquire that throws does not trigger
+`restore` with a nonexistent snapshot; its registered deferrals still run.
+
+`finish` runs after attempted prepare, even when preparation fails. All cleanup
+steps are attempted. Multiple errors are retained in `AggregateError.errors` with
+individual causes instead of losing the original failure. Cleanup failures remain
+failures even if cancellation was requested. `dispose()` is idempotent and rejects
+new jobs immediately, while waiting for cooperative work and cleanup to finish.
