@@ -1573,3 +1573,71 @@ test("independent recording views remount during export and expose custom contro
     restored: 1,
   });
 });
+
+test("completed recordings and thumbnails survive preview remount and upload retry", async ({
+  page,
+}) => {
+  await page.goto("/demo/?backend=webgl");
+  await page.waitForFunction(() => !!(window as any).trsDemo);
+  await page.evaluate(async () => {
+    const { panel } = (window as any).trsDemo;
+    panel.updateSettings({ width: 640, height: 360 });
+    await panel.renderImage();
+  });
+  await page.waitForFunction(
+    () =>
+      !!(window as any).trsDemo.panel.recording.results.getSnapshot()[0]
+        ?.thumbnail,
+  );
+  const result = await page.evaluate(async () => {
+    const { RenderPreview } = await import(
+      String("/demo/component-harness.ts")
+    );
+    const { panel, session } = (window as any).trsDemo;
+    const results = panel.recording.results;
+    const record = results.getSnapshot()[0];
+    const thumbnail = await createImageBitmap(record.thumbnail);
+    const dimensions = [thumbnail.width, thumbnail.height];
+    thumbnail.close();
+    const previous = panel.previewElement.querySelector("img").src;
+    const host = panel.previewElement.parentElement;
+    panel.previewView.dispose();
+    const preview = new RenderPreview({
+      container: host,
+      controller: panel.recording,
+    });
+    const image = preview.element.querySelector("img");
+    await image.decode();
+    let attempts = 0;
+    await results
+      .save(record.id, async () => {
+        if (++attempts === 1) throw new Error("Offline");
+      })
+      .catch(() => {});
+    const stateAfterFailure = session.status.state;
+    const sameUrlAfterFailure = image.src;
+    await results.retry(record.id);
+    const output = {
+      dimensions,
+      retained: results.getSnapshot()[0].id === record.id,
+      newUrl: image.src !== previous,
+      visible: !image.hidden,
+      playbackUnchanged: image.src === sameUrlAfterFailure,
+      stateAfterFailure,
+      saveState: results.getSaveState(record.id).state,
+      attempts,
+    };
+    preview.dispose();
+    return output;
+  });
+  expect(result).toEqual({
+    dimensions: [320, 180],
+    retained: true,
+    newUrl: true,
+    visible: true,
+    playbackUnchanged: true,
+    stateAfterFailure: "completed",
+    saveState: "saved",
+    attempts: 2,
+  });
+});

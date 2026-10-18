@@ -1,3 +1,6 @@
+import { resolveRenderSettings } from "./resolution.js";
+import { RenderResults, type RenderResultInput } from "./results.js";
+import { createFrameThumbnail } from "./thumbnail.js";
 import {
   createRecordingSettings,
   type RecordingSettingsStore,
@@ -7,6 +10,9 @@ import type { CapturedFrame, RenderDestination, RenderJob } from "./types.js";
 import { pngBlob } from "../destinations/pixels.js";
 export interface RenderControllerOptions {
   session: RenderSession;
+  /** Externally owned results survive controller disposal. */
+  results?: RenderResults;
+  maxRetainedBytes?: number;
   job: RenderJob;
   settings?: RecordingSettingsStore;
   destination(job: RenderJob): RenderDestination | Promise<RenderDestination>;
@@ -24,6 +30,10 @@ export interface StillResult {
 export class RenderController {
   readonly settings: RecordingSettingsStore;
   readonly session: RenderSession;
+  readonly results: RenderResults;
+  private unsubscribeFrame: () => void;
+  private thumbnail?: Promise<Blob | undefined>;
+  private activeJob?: RenderJob;
   channel = "1";
   error?: string;
   private operation = false;
@@ -34,6 +44,20 @@ export class RenderController {
   private jobId = crypto.randomUUID();
   constructor(private readonly options: RenderControllerOptions) {
     this.session = options.session;
+    this.results =
+      options.results ??
+      new RenderResults({ maxBytes: options.maxRetainedBytes });
+    this.unsubscribeFrame = this.session.onFrame((frame) => {
+      if (
+        this.operation &&
+        !this.thumbnail &&
+        typeof OffscreenCanvas !== "undefined"
+      )
+        this.thumbnail = createFrameThumbnail(frame).catch((error) => {
+          console.warn("Recording thumbnail", error);
+          return undefined;
+        });
+    });
     this.settings =
       options.settings ??
       createRecordingSettings({
@@ -75,6 +99,21 @@ export class RenderController {
       this.imageListeners.delete(listener);
     };
   }
+  addResult(input: RenderResultInput) {
+    if (this.disposed) return;
+    const result = this.results.add({
+      ...input,
+      job: input.job ?? this.activeJob,
+      channel: input.channel ?? this.channel,
+    });
+    if (!result.thumbnail && this.operation && this.thumbnail)
+      void this.thumbnail
+        .then((thumbnail) => {
+          if (thumbnail) this.results.setThumbnail(result.id, thumbnail);
+        })
+        .catch((error) => console.warn("Recording thumbnail", error));
+    return result;
+  }
   reportError(error: unknown) {
     this.error = String(error);
     this.publish();
@@ -93,6 +132,7 @@ export class RenderController {
     if (this.busy || this.session.busy) return;
     this.operation = true;
     this.error = undefined;
+    this.thumbnail = undefined;
     this.jobId = crypto.randomUUID();
     this.publish();
     try {
@@ -102,12 +142,14 @@ export class RenderController {
       throw error;
     } finally {
       this.operation = false;
+      this.activeJob = undefined;
       this.publish();
     }
   }
   start() {
     return this.run(async () => {
       const job = this.getJob();
+      this.activeJob = resolveRenderSettings(job);
       await this.session.start(job, await this.options.destination(job));
     });
   }
@@ -122,6 +164,10 @@ export class RenderController {
         channel = this.channel;
       const frame = this.options.currentFrame?.() ?? job.startFrame;
       const stillJob = { ...job, startFrame: frame, endFrame: frame };
+      this.activeJob = resolveRenderSettings(stillJob);
+      const previousId = this.results
+        .getSnapshot()
+        .find((result) => result.channel === channel)?.id;
       const destination = await this.options.imageDestination?.(stillJob);
       let image: CapturedFrame | undefined;
       if (destination) {
@@ -137,12 +183,26 @@ export class RenderController {
         if (this.status.state !== "completed") return;
       } else image = await this.session.preview(stillJob, frame);
       if (!image) return;
-      const result = {
-        blob: await pngBlob(image),
-        filename: `${job.fileName ?? job.id}-frame-${frame}.png`,
-        channel,
-      };
-      for (const listener of this.imageListeners) listener(result);
+      // A destination may already have retained its output in onComplete.
+      const retained = this.results
+        .getSnapshot()
+        .find((result) => result.channel === channel);
+      const existing = retained?.id !== previousId ? retained : undefined;
+      const result = existing
+        ? { blob: existing.blob, filename: existing.filename, channel }
+        : {
+            blob: await pngBlob(image),
+            filename: `${job.fileName ?? job.id}-frame-${frame}.png`,
+            channel,
+          };
+      if (!existing) this.addResult(result);
+      for (const listener of this.imageListeners) {
+        try {
+          listener(result);
+        } catch (error) {
+          console.error("RenderController image subscriber", error);
+        }
+      }
       return result;
     });
   }
@@ -150,6 +210,9 @@ export class RenderController {
   dispose() {
     this.disposed = true;
     this.unsubscribe();
+    this.unsubscribeFrame();
+    this.thumbnail = undefined;
+    if (!this.options.results) this.results.dispose();
     this.listeners.clear();
     this.imageListeners.clear();
   }

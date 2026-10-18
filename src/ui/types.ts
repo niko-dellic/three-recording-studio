@@ -1,3 +1,4 @@
+import type { RenderResults } from "../core/results.js";
 import type { RenderSession } from "../core/session.js";
 import type { RenderJob, RenderDestination } from "../core/types.js";
 import type { RecordingSettingsStore } from "../core/settings.js";
@@ -25,6 +26,8 @@ export interface RenderPanelOptions {
   job: RenderJob;
   /** Optional externally owned settings. UI edits and API updates share this model. */
   settings?: RecordingSettingsStore;
+  /** Optional externally owned results, retained across panel disposal. */
+  results?: RenderResults;
   destination: (
     job: RenderJob,
   ) => RenderDestination | Promise<RenderDestination>;

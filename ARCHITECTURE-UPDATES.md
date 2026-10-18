@@ -8,7 +8,7 @@ Target release: 0.2.0 (new public APIs; final version checked against npm before
 - [x] 1. Public, framework-independent recording settings model; panel binding.
 - [x] 2. Cooperative acquisition/preparation cancellation and reliable cleanup.
 - [x] 3. Composable preview, settings, transport, progress, and extension points.
-- [ ] 4. Shared render results, retention, thumbnails, and independent saving/retry.
+- [x] 4. Shared render results, retention, thumbnails, and independent saving/retry.
 - [ ] 5. Capability discovery and preflight validation.
 - [x] 6. Shared resolution and timeline mapping utilities.
 - [ ] 7. Unified preview/fullscreen ownership, independent of session lifetime.
@@ -48,3 +48,9 @@ verification. No npm publication until all work and release gates are complete.
    Public control visibility and slots replace consumer DOM surgery. Typecheck,
    three controller lifecycle tests, all 38 existing Chrome tests and the new
    independent-view remount/extension test passed (39 browser cases total).
+
+6. Shared results: RenderResults retains immutable recording snapshots with bounded
+   blobs, metadata and first-frame thumbnails independently of preview object URLs.
+   Save state/retry/cancellation are independent of rendering. Eight result/controller
+   tests and six targeted Chrome behaviors passed, including remount, upload retry,
+   still replacement, PNG playback, MP4 scrubber and destination callbacks.

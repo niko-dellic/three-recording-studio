@@ -8,7 +8,7 @@ import type { RenderPanelOptions } from "./types.js";
 import type { RenderController } from "../core/controller.js";
 export interface RenderPreviewOptions extends Pick<
   RenderPanelOptions,
-  "container" | "theme" | "icons" | "renderIcon" | "maxRetainedBytes"
+  "container" | "theme" | "icons" | "renderIcon"
 > {
   controller: RenderController;
 }
@@ -40,6 +40,7 @@ export class RenderPreview extends RenderComponent {
   private playbackAnimationFrame?: number;
   private sequenceTimer?: number;
   private artifacts: Array<{
+    id: string;
     bytes: number;
     sequence?: { urls: string[]; fps: number };
     channel: string;
@@ -166,13 +167,10 @@ export class RenderPreview extends RenderComponent {
     };
     const remove = this.button("Delete render", "delete", () => {
       if (this.recording.busy) return;
-      const index = this.artifacts.findIndex(
-        (artifact) => artifact.channel === this.channel,
-      );
-      if (index >= 0) {
-        const [artifact] = this.artifacts.splice(index, 1);
-        this.releaseArtifact(artifact);
-      }
+      const result = this.recording.results
+        .getSnapshot()
+        .find((result) => result.channel === this.channel);
+      if (result) this.recording.results.remove(result.id);
       this.video.pause();
       this.refreshResults();
     });
@@ -219,10 +217,9 @@ export class RenderPreview extends RenderComponent {
       ),
       this.recording.settings.subscribe(() => this.syncOutputFrame()),
       this.recording.subscribe(() => this.update()),
-      this.recording.onImage((result) =>
-        this.addResult(result.blob, result.filename, result.channel),
-      ),
+      this.recording.results.subscribe(() => this.syncResults()),
     );
+    this.syncResults();
     this.setTheme(options.theme ?? {});
     this.channels.addEventListener(
       "change",
@@ -289,43 +286,62 @@ export class RenderPreview extends RenderComponent {
     channel = this.channel,
     sequence?: PngSequence,
   ) {
-    if (this.controller.signal.aborted) return;
-    const bytes =
-      blob.size +
-      (sequence?.frames.reduce((sum, frame) => sum + frame.blob.size, 0) ?? 0);
-    const retained = this.artifacts
-      .filter((artifact) => artifact.channel !== channel)
-      .reduce((sum, artifact) => sum + artifact.bytes, 0);
-    if (
-      retained + bytes >
-      (this.viewOptions.maxRetainedBytes ?? 256 * 1024 * 1024)
-    )
-      throw new Error(
-        "Channel memory limit reached. Delete a render or save to Folder or Receiver.",
-      );
-    const previous = this.artifacts.findIndex(
-      (artifact) => artifact.channel === channel,
-    );
-    if (previous >= 0) {
-      const [replaced] = this.artifacts.splice(previous, 1);
-      this.releaseArtifact(replaced);
-    }
-    this.artifacts.push({
-      bytes,
-      sequence: sequence
-        ? {
-            urls: sequence.frames.map((frame) =>
-              URL.createObjectURL(frame.blob),
-            ),
-            fps: sequence.job.fps,
-          }
-        : undefined,
-      channel,
+    this.recording.addResult({
+      blob,
       filename,
-      type: blob.type,
-      url: URL.createObjectURL(blob),
+      channel,
+      sequence,
+      job: sequence?.job,
     });
-    if (channel === this.channel) this.refreshResults();
+  }
+  private syncResults() {
+    const results = this.recording.results.getSnapshot();
+    const previous = this.artifacts.find(
+      (item) => item.channel === this.channel,
+    )?.id;
+    const retained = new Set(results.map((result) => result.id));
+    for (const artifact of this.artifacts)
+      if (!retained.has(artifact.id)) this.releaseArtifact(artifact);
+    this.artifacts = results.map(
+      (result) =>
+        this.artifacts.find((item) => item.id === result.id) ?? {
+          id: result.id,
+          bytes: result.bytes,
+          channel: result.channel,
+          filename: result.filename,
+          type: result.blob.type,
+          url: URL.createObjectURL(result.blob),
+          sequence: result.sequence
+            ? {
+                urls: result.sequence.frames.map((frame) =>
+                  URL.createObjectURL(frame.blob),
+                ),
+                fps: result.sequence.job.fps,
+              }
+            : undefined,
+        },
+    );
+    const newOption =
+      this.channels.querySelector<HTMLOptionElement>('[value="new"]')!;
+    for (const result of results)
+      if (
+        ![...this.channels.options].some(
+          (option) => option.value === result.channel,
+        )
+      ) {
+        this.channels.add(
+          new Option(`Channel ${result.channel}`, result.channel),
+          newOption,
+        );
+      }
+    const selected = this.recording.channel;
+    if (![...this.channels.options].some((option) => option.value === selected))
+      this.channels.add(new Option(`Channel ${selected}`, selected), newOption);
+    this.channels.value = selected;
+    const current = this.artifacts.find(
+      (item) => item.channel === this.channel,
+    )?.id;
+    if (previous !== current) this.refreshResults();
   }
   private clearFullscreenTimer() {
     if (this.fullscreenHideTimer !== undefined)

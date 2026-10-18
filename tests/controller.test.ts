@@ -114,3 +114,31 @@ describe("shared recording controller", () => {
     expect(busy.at(-1)).toBe(false);
   });
 });
+
+it("externally owned results survive controller disposal", async () => {
+  const { RenderResults } = await import("../src/core/results.js");
+  const results = new RenderResults();
+  const { session } = fixture(sink());
+  const controller = new RenderController({
+    session,
+    results,
+    job: {
+      id: "shared",
+      contentId: "shared",
+      width: 2,
+      height: 2,
+      fps: 30,
+      startFrame: 0,
+      endFrame: 0,
+    },
+    destination: sink,
+  });
+  const result = controller.addResult({
+    blob: new Blob(["png"]),
+    filename: "frame.png",
+  });
+  controller.dispose();
+  expect(results.getSnapshot()).toEqual([result]);
+  results.dispose();
+  await session.dispose();
+});

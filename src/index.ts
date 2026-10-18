@@ -15,3 +15,6 @@ export * from "./core/resolution.js";
 export * from "./core/timeline.js";
 
 export * from "./core/controller.js";
+
+export * from "./core/results.js";
+export * from "./core/thumbnail.js";

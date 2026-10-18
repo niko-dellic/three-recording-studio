@@ -237,5 +237,55 @@ non-throwing command methods.
 Dispose each view on unmount. Views may be removed and recreated during a render;
 this does not cancel the session. Dispose the controller when no longer needed,
 and separately `await session.dispose()` when the application releases recording
-resources. At present retained channel results belong to the preview view; they
-are released when that view is disposed.
+resources. Retained results belong to the controller or an externally supplied result store,
+so removing a preview does not discard completed recordings.
+
+## Retaining results and retrying saves
+
+`RenderResults` owns completed blobs independently of a preview. Pass it as
+`results` to a controller or panel to retain recordings across disposal and
+remounting. Otherwise the controller owns a default store and disposes it with
+itself. Previews own and release their object URLs; they never delete shared
+results when unmounted.
+
+`getSnapshot()` returns a stable immutable array until results change. Each
+result has an ID, channel, filename, blob, creation time, retained byte count,
+and optional job, PNG sequence, and thumbnail. `add()` replaces that channel's
+result atomically. An oversized replacement preserves the previous recording.
+The default 256 MiB ceiling counts output blobs, sequence frame blobs, and
+thumbnails; it is not a total browser-memory quota. `remove(id)` releases the
+store's references. Application-held references remain the application's
+responsibility.
+
+```ts
+const results = new RenderResults({ maxBytes: 256 * 1024 * 1024 });
+const result = results.add({ blob, filename: "recording.mp4", job });
+try {
+  await results.save(result.id, async (recording, signal) => {
+    const response = await fetch(uploadUrl, {
+      method: "POST",
+      body: recording.blob,
+      signal,
+    });
+    if (!response.ok) throw new Error(`Upload failed: ${response.status}`);
+  });
+} catch {
+  // Keep playback/download available and offer results.retry(result.id).
+}
+```
+
+Saving has its own `unsaved`, `saving`, `saved`, or `failed` state, read through
+`getSaveState(id)` and observed with `subscribe()`. In React, subscribe using
+`getSaveState(id)` as the snapshot getter for a save indicator. A failed save
+retains the same result for retry. Concurrent saves of one result share one
+promise. Removal, replacement, and disposal abort its writer; writers must honor
+the signal. Cancellation cannot undo a remote upload that has already completed.
+Catch save failures independently of rendering when invoking saves from a
+render destination's completion callback.
+
+`controller.addResult(input)` retains an output and attaches the active job and
+first-frame thumbnail when available. Automatic thumbnails are at most 320 pixels
+on either side. `createFrameThumbnail(frame, maxSize?)` is also public for custom
+capture integrations; it copies the borrowed pixels before asynchronous PNG
+encoding. `setThumbnail(id, blob)` can attach a thumbnail later. Thumbnail updates
+and saving-state changes do not restart preview playback.
