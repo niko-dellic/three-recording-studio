@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vanilla Three.js recording</title>
+  </head>
+  <body>
+    <a href="../">Recipes</a>
+    <h1>Vanilla Three.js recording</h1>
+    <p>
+      The live canvas keeps its size while MP4 renders to an offscreen target.
+    </p>
+    <main>
+      <section>
+        <canvas class="live" id="scene" aria-label="Live scene"></canvas>
+        <p class="notice">
+          Rendering borrows scene time, then restores live animation.
+        </p>
+      </section>
+      <aside>
+        <div class="preview" id="preview"></div>
+        <div class="controls" id="controls"></div>
+      </aside>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

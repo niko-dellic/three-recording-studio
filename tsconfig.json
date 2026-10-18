@@ -17,7 +17,8 @@
       "three-recording-studio/encoding": ["./src/encoding/index.ts"],
       "three-recording-studio/testing": ["./src/testing/index.ts"],
       "three-recording-studio/capture/*": ["./src/capture/*"]
-    }
+    },
+    "jsx": "react-jsx"
   },
-  "include": ["src", "demo", "tests", "*.ts"]
+  "include": ["src", "demo", "tests", "*.ts", "examples"]
 }

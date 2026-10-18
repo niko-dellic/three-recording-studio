@@ -1,0 +1,48 @@
+:root {
+  color-scheme: dark;
+  font:
+    15px/1.5 system-ui,
+    sans-serif;
+  background: #151515;
+  color: #eee;
+}
+body {
+  margin: 24px;
+}
+a {
+  color: #a4c9ff;
+}
+main {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(320px, 1fr);
+  gap: 20px;
+}
+section,
+aside {
+  min-width: 0;
+}
+canvas.live {
+  width: 100%;
+  height: 280px;
+  display: block;
+  background: #202020;
+}
+.preview {
+  height: 320px;
+}
+.controls {
+  min-height: 200px;
+}
+button {
+  font: inherit;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.notice {
+  color: #bcbcbc;
+}
+@media (max-width: 750px) {
+  main {
+    grid-template-columns: 1fr;
+  }
+}

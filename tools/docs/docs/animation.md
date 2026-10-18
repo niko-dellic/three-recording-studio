@@ -4,13 +4,13 @@
 
 A `RenderSession` owns scene time during export. Its lifecycle is:
 
-1. Validate the job and open the destination.
-2. Prepare output targets.
-3. Acquire exclusive scene access and save application state.
+1. Validate the job and run read-only capture/destination preflight.
+2. Open the destination, then acquire exclusive scene access and save application state.
+3. Prepare output targets under the acquired scene lease.
 4. For each missing frame, seek, await readiness, render, await readback, and await saving.
 5. Finalize the destination, release GPU targets, and restore application state.
 
-Your `acquire()` hook must stop every writer of animated state, including mixers, physics, controls, external timelines, and application callbacks. It must roll back its own changes if it throws before returning a snapshot. `restore()` receives that snapshot on success, cancellation, or failure after acquisition.
+Your `acquire()` hook must stop every writer of animated state, including mixers, physics, controls, external timelines, and application callbacks. If acquisition throws before returning a snapshot, roll back partial changes directly or register cleanup with `context.defer()`. `restore()` receives that snapshot on success, cancellation, or failure after acquisition.
 
 `ready()` is for textures, asynchronous data, video seeking, or simulation work. GPU completion does not imply that these application resources are ready. Load shared assets before export when possible.
 

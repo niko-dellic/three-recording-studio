@@ -45,6 +45,14 @@ Applications provide animation acquisition, timestamp evaluation, readiness and 
 
 See [the guide](https://three-recording-studio.vercel.app/guide), [API](https://three-recording-studio.vercel.app/api), [rendering contract](https://three-recording-studio.vercel.app/rendering), and [saving](https://three-recording-studio.vercel.app/saving). Run `npm run docs:dev` for the styled documentation.
 
+## Runnable integration recipes
+
+Run `npm run examples:dev` after `npm ci`, then open
+http://127.0.0.1:5188/examples/. The vanilla Three.js example exports MP4; the React
+example demonstrates custom async replay, independent preview mounts, PNG playback,
+and backend-save retries. See [recipes](https://three-recording-studio.vercel.app/recipes)
+for source paths, ownership, and cleanup.
+
 ## Development
 
 Node 24+. Three.js 0.186.x. ESM and strict TypeScript.

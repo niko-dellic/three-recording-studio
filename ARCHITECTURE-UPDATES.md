@@ -15,7 +15,7 @@ Target release: 0.2.0 (new public APIs; final version checked against npm before
 - [x] 8. Frame-boundary validation and structured diagnostics.
 - [x] 9. Encoding/storage composition, buffered default and supported streaming.
 - [x] 10. Reusable adapter contracts and consumer regression harness.
-- [ ] 11. Complete runnable integration recipes and lifecycle documentation.
+- [x] 11. Complete runnable integration recipes and lifecycle documentation.
 - [x] 12. Renderer-neutral and narrow capture entry points.
 - [ ] Migrate and verify PreFORM without private input selectors/events or hidden settings CSS.
 - [ ] Final unit/browser/package/site/format/type/build/security checks, clean release commit/tag.
@@ -84,3 +84,7 @@ verification. No npm publication until all work and release gates are complete.
     unit tests, six scenarios each against native WebGL/WebGPU in Chrome, and the
     same harness in a clean packed consumer without Three.js passed. Source paths
     let typechecking new public APIs run without stale generated declarations.
+
+12. Runnable vanilla Three.js and React/custom-capture recipes include full lifecycle,
+    remount, retained results and retryable local backend upload. Both browser
+    acceptance tests, typecheck, production site build and built-site route checks pass.

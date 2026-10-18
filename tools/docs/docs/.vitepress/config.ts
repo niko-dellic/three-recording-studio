@@ -90,6 +90,7 @@ export default defineConfig({
       {
         text: "Integration",
         items: [
+          { text: "Runnable recipes", link: "/recipes" },
           { text: "Panel and themes", link: "/themes" },
           { text: "Saving and recovery", link: "/saving" },
           { text: "API reference", link: "/api" },

@@ -19,7 +19,7 @@ try {
         mode,
       );
       let home;
-      for (const route of ["/", "/guide", "/api"]) {
+      for (const route of ["/", "/guide", "/api", "/recipes"]) {
         await page.goto(origin + route);
         await page.waitForFunction(
           () => document.querySelector("#app")?.__vue_app__,
@@ -119,6 +119,18 @@ try {
   console.log(
     "Static demo, docs navigation, light/dark, mobile, search, and publisher styling checks passed.",
   );
+  const recipes = await browser.newPage();
+  for (const recipe of ["vanilla", "react"]) {
+    const response = await recipes.goto(origin + `/examples/${recipe}/`);
+    assert.equal(response.status(), 200);
+    await recipes.waitForFunction(() => !!window.recipe);
+    assert(
+      await recipes
+        .getByRole("button", { name: "Render", exact: true })
+        .count(),
+    );
+  }
+  await recipes.close();
 } finally {
   await browser.close();
 }

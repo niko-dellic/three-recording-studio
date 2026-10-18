@@ -10,3 +10,5 @@ tools/docs/docs/.vitepress/dist/
 demo-dist/
 *.tgz
 !tools/docs/vendor/*.tgz
+
+examples-dist/

@@ -6,3 +6,5 @@ tools/docs/docs/.vitepress/dist
 tools/docs/docs/.vitepress/cache
 package-lock.json
 test-results
+
+examples-dist
