@@ -7,7 +7,7 @@ Target release: 0.2.0 (new public APIs; final version checked against npm before
 
 - [x] 1. Public, framework-independent recording settings model; panel binding.
 - [x] 2. Cooperative acquisition/preparation cancellation and reliable cleanup.
-- [ ] 3. Composable preview, settings, transport, progress, and extension points.
+- [x] 3. Composable preview, settings, transport, progress, and extension points.
 - [ ] 4. Shared render results, retention, thumbnails, and independent saving/retry.
 - [ ] 5. Capability discovery and preflight validation.
 - [x] 6. Shared resolution and timeline mapping utilities.
@@ -42,3 +42,9 @@ Target release: 0.2.0 (new public APIs; final version checked against npm before
 
 Do not consider individual checkboxes a substitute for final requirement-by-requirement
 verification. No npm publication until all work and release gates are complete.
+
+5. Composable UI: extracted RenderController, RenderSettingsView, RenderPreview,
+   RenderTransport and RenderProgress; RenderPanel is a compatibility assembly.
+   Public control visibility and slots replace consumer DOM surgery. Typecheck,
+   three controller lifecycle tests, all 38 existing Chrome tests and the new
+   independent-view remount/extension test passed (39 browser cases total).

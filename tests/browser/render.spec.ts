@@ -1444,3 +1444,132 @@ test("resolution multiplier affects still pixels once and preserves editable bas
     resolutionMultiplier: 2,
   });
 });
+
+test("independent recording views remount during export and expose custom control slots", async ({
+  page,
+}) => {
+  await page.goto("/demo/?backend=webgl");
+  await page.waitForFunction(() => !!(window as any).trsDemo);
+  const result = await page.evaluate(async () => {
+    const ui = await import(String("/demo/component-harness.ts"));
+    const { RenderSession } = await import(
+      String("/demo/component-harness.ts")
+    );
+    const hosts = Array.from({ length: 4 }, () => {
+      const element = document.createElement("div");
+      element.style.cssText = "width:400px;height:300px";
+      document.body.append(element);
+      return element;
+    });
+    let release!: () => void;
+    let acquired!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      acquired = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let restored = 0,
+      writes = 0;
+    const session = new RenderSession({
+      animation: {
+        acquire() {},
+        async seek() {
+          acquired();
+          await gate;
+        },
+        restore() {
+          restored++;
+        },
+      },
+      capture: {
+        prepare() {},
+        async capture() {
+          return { width: 8, height: 4, pixels: new Uint8Array(128) };
+        },
+        finish() {},
+        dispose() {},
+      },
+    });
+    const controller = new ui.RenderController({
+      session,
+      job: {
+        id: "components",
+        contentId: "components",
+        width: 8,
+        height: 4,
+        fps: 30,
+        startFrame: 0,
+        endFrame: 1,
+      },
+      destination: () => ({
+        async open() {
+          return new Set();
+        },
+        async write() {
+          writes++;
+        },
+        async close() {},
+        async abort() {},
+      }),
+    });
+    const settings = new ui.RenderSettingsView({
+      container: hosts[0],
+      controller,
+      controls: { cameraFit: false, frameRange: false },
+    });
+    const custom = document.createElement("button");
+    custom.textContent = "Custom range";
+    settings.slots.frameRange.append(custom);
+    const hiddenControlsAbsent = !settings.element.querySelector(
+      '[name="cameraFit"], [name="endFrame"]',
+    );
+    const slotAttached = custom.isConnected;
+    const transport = new ui.RenderTransport({
+      container: hosts[1],
+      controller,
+    });
+    const progress = new ui.RenderProgress({ container: hosts[2], controller });
+    let preview = new ui.RenderPreview({ container: hosts[3], controller });
+    const run = controller.start();
+    await entered;
+    const disabled = transport.element.querySelector("button")!.disabled;
+    preview.dispose();
+    const busyAfterDetach = session.busy;
+    preview = new ui.RenderPreview({ container: hosts[3], controller });
+    release();
+    await run;
+    const complete = progress.element.textContent!.includes("completed");
+    const enabled = !transport.element.querySelector("button")!.disabled;
+    const pixelsVisible = !preview.element.querySelector("canvas")!.hidden;
+    for (const view of [settings, transport, progress, preview]) view.dispose();
+    const stateAfterDispose = session.status.state;
+    controller.dispose();
+    await session.dispose();
+    hosts.forEach((host) => host.remove());
+    return {
+      hiddenControlsAbsent,
+      slotAttached,
+      disabled,
+      busyAfterDetach,
+      complete,
+      enabled,
+      pixelsVisible,
+      stateAfterDispose,
+      writes,
+      restored,
+    };
+  });
+  expect(result).toEqual({
+    hiddenControlsAbsent: true,
+    slotAttached: true,
+    disabled: true,
+    busyAfterDetach: true,
+    complete: true,
+    enabled: true,
+    pixelsVisible: true,
+    stateAfterDispose: "completed",
+    writes: 2,
+    restored: 1,
+  });
+});

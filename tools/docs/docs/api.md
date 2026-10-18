@@ -198,3 +198,44 @@ seconds), `timeAt(positionSeconds)` and `positionAt(sourceTime)`. The applicatio
 owns speed, direction, gaps, and source-time units. Removed times snap to the nearest
 retained frame; ranges are normalized for reverse playback. Restoring gaps does
 not automatically expand an existing selection to the full duration.
+
+## Composing the recording UI
+
+`RenderPanel` remains the default assembly. Applications can instead mount
+`RenderSettingsView`, `RenderPreview`, `RenderTransport`, and `RenderProgress`
+independently from `three-recording-studio/ui`. Each takes `{ container,
+controller, theme? }`; settings and preview also expose their specific options.
+The shared `RenderController` is available from the root and UI entry points.
+
+```ts
+const controller = new RenderController({ session, job, destination });
+const settings = new RenderSettingsView({
+  container: settingsHost,
+  controller,
+  controls: { cameraFit: false, frameRange: false },
+});
+const preview = new RenderPreview({ container: previewHost, controller });
+const transport = new RenderTransport({ container: toolbarHost, controller });
+const progress = new RenderProgress({ container: statusHost, controller });
+settings.slots.frameRange.append(customTimeline);
+settings.slots.afterDimensions.append(customResolutionControl);
+controller.settings.updateSettings({ startFrame: 10, endFrame: 90 });
+```
+
+Slots are stable mount points; custom controls write to `controller.settings`.
+Hidden built-in controls are removed from the DOM, without removing their values
+from the model. `preview.toolbar` is the supported toolbar extension point.
+The default panel exposes the same components through `settingsView`,
+`previewView`, `transport`, and `progress`, and its controller as `recording`.
+
+Controller commands `start()`, `preview()`, and `renderImage()` report failures
+through `error` and reject for programmatic callers. `subscribe()` immediately
+notifies and returns an unsubscribe function. Transport buttons display failures
+through the shared progress view. The compatibility panel retains its existing
+non-throwing command methods.
+
+Dispose each view on unmount. Views may be removed and recreated during a render;
+this does not cancel the session. Dispose the controller when no longer needed,
+and separately `await session.dispose()` when the application releases recording
+resources. At present retained channel results belong to the preview view; they
+are released when that view is disposed.

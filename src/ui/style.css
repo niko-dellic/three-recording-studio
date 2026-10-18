@@ -663,3 +663,16 @@
   border-radius: 50%;
   background: var(--trs-accent);
 }
+
+/* Independently mountable components inherit the same control styling. */
+.trs-component {
+  height: auto;
+  padding: 0;
+  overflow: visible;
+}
+.trs-extension {
+  grid-column: 1 / -1;
+}
+.trs-extension:empty {
+  display: none;
+}
