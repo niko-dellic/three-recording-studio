@@ -1373,3 +1373,46 @@ test("video scrubber updates smoothly, finishes at maximum, and responds to hove
     page.getByRole("button", { name: "Play video", exact: true }),
   ).toBeVisible();
 });
+
+test("public settings updates reflect in the panel and UI edits publish without DOM integration", async ({
+  page,
+}) => {
+  await page.goto("/demo/?backend=webgl");
+  await page.waitForFunction(() => !!(window as any).trsDemo);
+  await page.evaluate(() => {
+    const panel = (window as any).trsDemo.panel;
+    (window as any).settingsChanges = [];
+    panel.subscribeSettings(() =>
+      (window as any).settingsChanges.push(panel.settings.getSnapshot()),
+    );
+    panel.updateSettings({
+      width: 640,
+      height: 480,
+      startFrame: 2,
+      endFrame: 7,
+      sampleIntervalSeconds: 2,
+    });
+  });
+  await expect(page.locator('[name="width"]')).toHaveValue("640");
+  await expect(page.locator('[name="height"]')).toHaveValue("480");
+  await expect(page.locator('[name="startFrame"]')).toHaveValue("2");
+  await expect(page.locator('[name="samplingMode"]')).toHaveValue("Timelapse");
+  expect(
+    await page.evaluate(() => (window as any).settingsChanges.length),
+  ).toBe(1);
+  await page.locator('[name="width"]').fill("800");
+  expect(
+    await page.evaluate(() => (window as any).trsDemo.panel.getJob().width),
+  ).toBe(800);
+  await page.evaluate(() =>
+    (window as any).trsDemo.panel.updateSettings({
+      sampleIntervalSeconds: undefined,
+    }),
+  );
+  await expect(page.locator('[name="samplingMode"]')).toHaveValue("Normal");
+  expect(
+    await page.evaluate(
+      () => (window as any).trsDemo.panel.getJob().sampleIntervalSeconds,
+    ),
+  ).toBeUndefined();
+});

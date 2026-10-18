@@ -1,3 +1,8 @@
+import {
+  createRecordingSettings,
+  type RecordingSettings,
+  type RecordingSettingsStore,
+} from "../core/settings.js";
 import type { PngSequence } from "../destinations/memory.js";
 import { setupTooltips } from "./tooltip.js";
 import { RenderSession } from "../core/session.js";
@@ -28,6 +33,8 @@ export interface RenderPanelOptions {
   container: HTMLElement;
   session: RenderSession;
   job: RenderJob;
+  /** Optional externally owned settings. UI edits and API updates share this model. */
+  settings?: RecordingSettingsStore;
   destination: (
     job: RenderJob,
   ) => RenderDestination | Promise<RenderDestination>;
@@ -64,6 +71,9 @@ export interface RenderPanelOptions {
   previewContainer?: HTMLElement;
 }
 export class RenderPanel {
+  readonly settings: RecordingSettingsStore;
+  private settingsViews: Array<() => void> = [];
+  private reflectingSettings = false;
   readonly element: HTMLElement;
   readonly previewElement: HTMLElement;
   private canvas: HTMLCanvasElement;
@@ -113,6 +123,18 @@ export class RenderPanel {
   private transparencySupported = true;
   private preferredTransparency = true;
   constructor(private readonly options: RenderPanelOptions) {
+    this.settings =
+      options.settings ??
+      createRecordingSettings({
+        cameraFit: "auto",
+        transparent: true,
+        ...options.job,
+        fileName: options.job.fileName ?? options.job.id,
+      });
+    options = this.options = {
+      ...options,
+      job: { ...options.job, ...this.settings.getSnapshot() },
+    };
     const doc = options.container.ownerDocument;
     this.element = doc.createElement("section");
     this.element.className = "trs-panel";
@@ -269,6 +291,7 @@ export class RenderPanel {
     heightField.addEventListener("input", syncTemplate, {
       signal: this.controller.signal,
     });
+    this.settingsViews.push(syncTemplate);
     syncTemplate();
     templateField.append(templateLabel, templateSelect);
     outputSection.append(heading, templateField, orientation, this.controls);
@@ -454,6 +477,47 @@ export class RenderPanel {
       (event) => event.preventDefault(),
       { signal: this.controller.signal },
     );
+    const reflect = () => {
+      this.reflectingSettings = true;
+      try {
+        const value = this.settings.getSnapshot();
+        for (const [key, field] of this.fields) {
+          if (key === "samplingMode")
+            field.value =
+              value.sampleIntervalSeconds === undefined
+                ? "Normal"
+                : "Timelapse";
+          else if (key === "sampleIntervalSeconds")
+            field.value = String(value.sampleIntervalSeconds ?? 1);
+          else if (
+            field instanceof HTMLInputElement &&
+            field.type === "checkbox"
+          )
+            field.checked = Boolean(value[key as keyof RecordingSettings]);
+          else
+            field.value = String(
+              value[key as keyof RecordingSettings] ??
+                (key === "cameraFit" ? "auto" : ""),
+            );
+        }
+        for (const sync of this.settingsViews) sync();
+        this.syncOutputFrame();
+      } finally {
+        this.reflectingSettings = false;
+      }
+    };
+    const read = () => {
+      if (!this.reflectingSettings)
+        this.settings.updateSettings(this.readSettings());
+    };
+    this.controls.addEventListener("input", read, {
+      signal: this.controller.signal,
+    });
+    this.controls.addEventListener("change", read, {
+      signal: this.controller.signal,
+    });
+    this.cleanup.push(this.settings.subscribe(reflect));
+    reflect();
     this.setTheme(options.theme ?? {});
   }
   private button(
@@ -625,6 +689,7 @@ export class RenderPanel {
     this.controls.addEventListener("change", sync, {
       signal: this.controller.signal,
     });
+    this.settingsViews.push(sync);
     sync();
   }
   private frameRange(start: number, end: number) {
@@ -704,6 +769,7 @@ export class RenderPanel {
     const lastLabel = last.parentElement!;
     group.append(track, firstLabel, lastLabel);
     this.controls.append(group);
+    this.settingsViews.push(sync);
     sync();
   }
   private select(key: string, label: string, values: string[], value: string) {
@@ -726,8 +792,8 @@ export class RenderPanel {
     this.controls.append(wrapper);
     this.fields.set(key, select);
   }
-  getJob(): RenderJob {
-    const job = { ...this.options.job, id: this.jobId };
+  private readSettings(): RecordingSettings {
+    const job = { ...this.settings.getSnapshot() };
     for (const [key, input] of this.fields) {
       if (key === "samplingMode" || key === "sampleIntervalSeconds") continue;
       (job as unknown as Record<string, unknown>)[key] =
@@ -741,13 +807,27 @@ export class RenderPanel {
       job.sampleIntervalSeconds = Number(
         this.fields.get("sampleIntervalSeconds")!.value,
       );
-    else delete job.sampleIntervalSeconds;
+    else job.sampleIntervalSeconds = undefined;
     job.fileName =
       (job.fileName ?? "render")
         .trim()
         .replace(/[^a-zA-Z0-9_-]+/g, "-")
         .slice(0, 80) || "render";
     return job;
+  }
+  /** Snapshot settings without consulting DOM fields. */
+  getJob(): RenderJob {
+    return {
+      ...this.settings.getSnapshot(),
+      id: this.jobId,
+      contentId: this.options.job.contentId,
+    };
+  }
+  updateSettings(patch: Partial<RecordingSettings>) {
+    this.settings.updateSettings(patch);
+  }
+  subscribeSettings(listener: () => void) {
+    return this.settings.subscribe(listener);
   }
   async start() {
     if (this.options.session.busy || this.operation) return;
@@ -1519,6 +1599,7 @@ export class RenderPanel {
     }
     field.disabled = !supported || this.options.session.busy || this.operation;
     field.parentElement!.title = supported ? "" : "MP4 output is opaque";
+    this.settings.updateSettings({ transparent: field.checked });
     this.syncOutputFrame();
   }
   setTheme(theme: RenderTheme) {

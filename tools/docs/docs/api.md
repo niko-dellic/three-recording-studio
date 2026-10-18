@@ -117,3 +117,29 @@ viewport aids and are not included in exported images or videos.
 `RenderPanel.addSequenceResult(sequence, channel?)` retains a PNG sequence with playback, scrubbing, and ZIP download. `addResult(blob, filename, channel?)` retains a PNG or MP4. Both replace the selected channel's previous result and release its object URLs. Deleting a result or disposing the panel releases its URLs and playback timers.
 
 `RenderPanelOptions.maxRetainedBytes` limits total retained output across channels (default 256 MiB). PNG frames and the sequence ZIP both count toward it. A result exceeding the limit is rejected while the previous result remains. Encoding and temporary copies add memory beyond this retained-output limit. `renderIcon(key, document)` optionally supplies icon elements; `setTransparencySupported(boolean)` lets an application disable transparency when selecting an opaque format such as MP4.
+
+## Controlled recording settings
+
+`createRecordingSettings(initial)` creates a framework-independent settings store.
+Snapshots are immutable and stable until a setting changes. `subscribe(listener)`
+notifies on changes only and returns an unsubscribe function. `updateSettings(patch)`
+applies the entire patch atomically; explicit `undefined` clears optional settings.
+Job IDs and content identity are excluded from settings snapshots.
+
+Pass the store as `RenderPanelOptions.settings` to share settings with custom
+controls or persistence. Existing integrations may instead use
+`panel.updateSettings(patch)`, `panel.subscribeSettings(listener)`, and
+`panel.settings.getSnapshot()`. No synthetic DOM events are necessary.
+
+```ts
+const unsubscribe = panel.subscribeSettings(() => {
+  saveSettings(panel.settings.getSnapshot());
+});
+panel.updateSettings({ startFrame: 12, endFrame: 60 });
+panel.updateSettings({ sampleIntervalSeconds: undefined });
+// On unmount: unsubscribe(); The application still owns the session.
+```
+
+The model holds editable drafts, including temporarily invalid numbers while typing.
+`validateJob` and `session.start` validate the execution snapshot. A render already
+in progress keeps its original job; subsequent settings edits affect future jobs.

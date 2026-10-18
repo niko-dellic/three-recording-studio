@@ -8,3 +8,5 @@ export * from "./destinations/directory.js";
 
 export * from "./destinations/memory.js";
 export * from "./destinations/file.js";
+
+export * from "./core/settings.js";
