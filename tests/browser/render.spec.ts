@@ -1641,3 +1641,62 @@ test("completed recordings and thumbnails survive preview remount and upload ret
     attempts: 2,
   });
 });
+
+test("one fullscreen control survives rendering completion and moves into playback", async ({
+  page,
+}) => {
+  await page.goto("/demo/?backend=webgl");
+  await page.waitForFunction(() => !!(window as any).trsDemo);
+  await expect(page.locator("[data-output-fullscreen]")).toHaveCount(1);
+  await page.evaluate(() => {
+    const { panel, session } = (window as any).trsDemo;
+    panel.updateSettings({
+      width: 64,
+      height: 32,
+      startFrame: 0,
+      endFrame: 2,
+      transparent: false,
+    });
+    const off = session.onFrame(() => {
+      session.pause();
+      off();
+    });
+    (window as any).fullscreenRender = panel.start();
+  });
+  await page.waitForFunction(
+    () => (window as any).trsDemo.session.status.state === "paused",
+  );
+  await page
+    .getByRole("button", { name: "Fullscreen output", exact: true })
+    .click();
+  await expect
+    .poll(() => page.evaluate(() => !!document.fullscreenElement))
+    .toBe(true);
+  await expect(
+    page.getByRole("button", { name: "Exit output fullscreen", exact: true }),
+  ).toBeVisible();
+  await page.evaluate(async () => {
+    (window as any).trsDemo.session.resume();
+    await (window as any).fullscreenRender;
+  });
+  await expect(page.locator("[data-output-fullscreen]")).toHaveCount(1);
+  await expect(
+    page.locator(".trs-sequence-tools [data-output-fullscreen]"),
+  ).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => !!document.fullscreenElement))
+    .toBe(true);
+  await page
+    .getByRole("button", { name: "Exit output fullscreen", exact: true })
+    .click();
+  await expect
+    .poll(() => page.evaluate(() => document.fullscreenElement === null))
+    .toBe(true);
+  await expect(page.locator("[data-output-fullscreen]")).toHaveCount(1);
+  await page
+    .getByRole("button", { name: "Delete render", exact: true })
+    .click();
+  await expect(
+    page.locator(".trs-preview-tools [data-output-fullscreen]"),
+  ).toBeVisible();
+});

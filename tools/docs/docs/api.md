@@ -309,3 +309,14 @@ using `/core`, `/ui`, and `/destinations`. None of these entry points install or
 require React, Quilt, or Theatre. Thumbnail creation and capture/encoding still
 require their documented browser APIs; renderer-neutral does not imply that all
 operations can execute in Node.
+
+## Preview fullscreen
+
+`RenderPreview` owns one fullscreen button for empty framing, live render frames,
+stills, and completed playback. It appears in the preview toolbar normally, in
+an overlay for fullscreen still/live output, and in the playback bar for videos
+and sequences. Completing a render while fullscreen keeps the same viewport
+fullscreen and moves the same control; applications should not add a second
+fullscreen button. Exiting restores the previous preview zoom/pan state without
+changing the application's camera. The control is disabled if the document does
+not support fullscreen.

@@ -676,3 +676,13 @@
 .trs-extension:empty {
   display: none;
 }
+
+.trs-fullscreen-tools {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 5;
+}
+.trs-fullscreen-tools[hidden] {
+  display: none;
+}

@@ -11,7 +11,7 @@ Target release: 0.2.0 (new public APIs; final version checked against npm before
 - [x] 4. Shared render results, retention, thumbnails, and independent saving/retry.
 - [ ] 5. Capability discovery and preflight validation.
 - [x] 6. Shared resolution and timeline mapping utilities.
-- [ ] 7. Unified preview/fullscreen ownership, independent of session lifetime.
+- [x] 7. Unified preview/fullscreen ownership, independent of session lifetime.
 - [x] 8. Frame-boundary validation and structured diagnostics.
 - [ ] 9. Encoding/storage composition, buffered default and supported streaming.
 - [ ] 10. Reusable adapter contracts and consumer regression harness.
@@ -59,3 +59,8 @@ verification. No npm publication until all work and release gates are complete.
    /camera exports with optional Three.js peer for custom capture consumers.
    Typecheck and clean packed installation pass; the verifier removes Three.js
    before loading core/UI/destinations and checks every new capture entry point.
+
+8. Unified fullscreen: one preview-owned control moves between live/still toolbar,
+   fullscreen overlay and completed playback bar. Preview navigation is restored
+   on exit. Typecheck and five Chrome regressions pass, including completing an
+   active render in fullscreen without duplicate controls or cancellation.

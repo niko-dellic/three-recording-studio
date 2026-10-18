@@ -37,6 +37,8 @@ export class RenderPreview extends RenderComponent {
   private downloadButton: HTMLButtonElement;
   private deleteButton: HTMLButtonElement;
   private sequenceTools!: HTMLDivElement;
+  private fullscreenControl: HTMLButtonElement;
+  private fullscreenTools: HTMLDivElement;
   private playbackAnimationFrame?: number;
   private sequenceTimer?: number;
   private artifacts: Array<{
@@ -198,10 +200,21 @@ export class RenderPreview extends RenderComponent {
     options.container.append(this.element);
 
     this.toolbar = tools;
+    this.fullscreenTools = doc.createElement("div");
+    this.fullscreenTools.className = "trs-fullscreen-tools";
+    this.viewport.append(this.fullscreenTools);
+    for (const event of ["pointerdown", "wheel", "keydown"])
+      this.fullscreenTools.addEventListener(
+        event,
+        (event) => event.stopPropagation(),
+        { signal: this.controller.signal },
+      );
+    this.fullscreenControl = this.fullscreenButton();
+    this.syncFullscreenButton();
     this.cleanup.push(
       setupTooltips(
         this.element,
-        ".trs-slot-tools button, .trs-slot-tools select, .trs-preview-tools button, .trs-sequence-tools button",
+        ".trs-slot-tools button, .trs-slot-tools select, .trs-preview-tools button, .trs-sequence-tools button, .trs-fullscreen-tools button",
         this.controller.signal,
       ),
     );
@@ -278,6 +291,7 @@ export class RenderPreview extends RenderComponent {
       this.video.ondurationchange =
         null;
     this.sequenceTools.hidden = true;
+    this.syncFullscreenButton();
     this.sequenceTools.replaceChildren();
   }
   addResult(
@@ -370,11 +384,18 @@ export class RenderPreview extends RenderComponent {
   private fullscreenButton() {
     const button = this.button("Fullscreen output", "fullscreen", () => {
       const doc = this.element.ownerDocument;
+      if (doc.fullscreenElement !== this.viewport)
+        this.previewBeforeFullscreen = {
+          scale: this.scale,
+          offset: { ...this.offset },
+          fitting: this.fitting,
+        };
       const action =
         doc.fullscreenElement === this.viewport
           ? doc.exitFullscreen()
           : this.viewport.requestFullscreen();
       void action.catch((error) => {
+        this.previewBeforeFullscreen = undefined;
         this.recording.reportError(error);
       });
     });
@@ -383,13 +404,19 @@ export class RenderPreview extends RenderComponent {
     return button;
   }
   private syncFullscreenButton() {
-    const button = this.sequenceTools.querySelector<HTMLButtonElement>(
-      "[data-output-fullscreen]",
-    );
+    const button = this.fullscreenControl;
     if (!button) return;
     const active =
       this.element.ownerDocument.fullscreenElement === this.viewport;
+    const parent = !this.sequenceTools.hidden
+      ? this.sequenceTools
+      : active
+        ? this.fullscreenTools
+        : this.toolbar;
+    if (button.parentElement !== parent) parent.append(button);
+    this.fullscreenTools.hidden = parent !== this.fullscreenTools;
     const label = active ? "Exit output fullscreen" : "Fullscreen output";
+    if (button.getAttribute("aria-label") === label) return;
     const replacement = this.button(
       label,
       active ? "exitFullscreen" : "fullscreen",
@@ -484,9 +511,9 @@ export class RenderPreview extends RenderComponent {
       this.image.onload = () => {
         if (this.fitting) this.fit();
       };
-      this.sequenceTools.append(play, scrub, count, this.fullscreenButton());
-      this.syncFullscreenButton();
+      this.sequenceTools.append(play, scrub, count);
       this.sequenceTools.hidden = false;
+      this.syncFullscreenButton();
       show();
     } else if (artifact.type.startsWith("video/")) {
       this.video.src = artifact.url;
@@ -545,9 +572,9 @@ export class RenderPreview extends RenderComponent {
         this.video.ondurationchange =
           sync;
       this.video.onplay = this.video.onpause = this.video.onended = refresh;
-      this.sequenceTools.append(play, scrub, time, this.fullscreenButton());
-      this.syncFullscreenButton();
+      this.sequenceTools.append(play, scrub, time);
       this.sequenceTools.hidden = false;
+      this.syncFullscreenButton();
       sync();
     } else {
       this.image.onload = () => this.fit();
