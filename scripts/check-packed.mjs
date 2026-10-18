@@ -34,6 +34,35 @@ try {
     ],
     { cwd: temporary, stdio: "pipe" },
   );
+  await writeFile(
+    join(temporary, "consumer.ts"),
+    `
+import type { RenderDestination } from 'three-recording-studio/core';
+import { Mp4Destination } from 'three-recording-studio/encoding';
+import { MemorySequenceDestination, DirectoryDestination } from 'three-recording-studio/destinations';
+const mp4: RenderDestination = new Mp4Destination({ onComplete() {} });
+const png: RenderDestination = new MemorySequenceDestination({ onComplete() {} });
+void [mp4, png, DirectoryDestination];
+`,
+  );
+  execFileSync(
+    process.execPath,
+    [
+      join(root, "node_modules/typescript/bin/tsc"),
+      "--noEmit",
+      "--strict",
+      "--exactOptionalPropertyTypes",
+      "--skipLibCheck",
+      "--target",
+      "ES2022",
+      "--module",
+      "NodeNext",
+      "--moduleResolution",
+      "NodeNext",
+      join(temporary, "consumer.ts"),
+    ],
+    { cwd: temporary, stdio: "inherit" },
+  );
   const result = execFileSync(
     process.execPath,
     [

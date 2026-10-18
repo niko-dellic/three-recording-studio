@@ -1,3 +1,4 @@
+import type { RenderCapabilities } from "../core/capabilities.js";
 import type { FileStorage, FileChunk } from "../destinations/storage.js";
 import {
   Output,
@@ -37,15 +38,17 @@ export class Mp4Destination implements RenderDestination {
   private streamWriter?: WritableStreamDefaultWriter<FileChunk>;
   private finalizing = false;
   constructor(private readonly options: Mp4DestinationOptions) {}
-  capabilities() {
+  capabilities(): RenderCapabilities {
     return {
       transparent: false,
       widthMultiple: 2,
       heightMultiple: 2,
       resumable: false,
-      memoryLimitBytes: this.options.streaming
-        ? undefined
-        : (this.options.maxBytes ?? 256 * 1024 * 1024),
+      ...(this.options.streaming
+        ? {}
+        : {
+            memoryLimitBytes: this.options.maxBytes ?? 256 * 1024 * 1024,
+          }),
     };
   }
   async check(job: RenderJob, context: { signal: AbortSignal }) {
