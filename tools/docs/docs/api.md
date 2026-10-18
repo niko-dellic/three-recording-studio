@@ -289,3 +289,23 @@ on either side. `createFrameThumbnail(frame, maxSize?)` is also public for custo
 capture integrations; it copies the borrowed pixels before asynchronous PNG
 encoding. `setThumbnail(id, blob)` can attach a thumbnail later. Thumbnail updates
 and saving-state changes do not restart preview playback.
+
+## Package entry points
+
+| Import                                  | Contents                                                                       | Renderer dependency            |
+| --------------------------------------- | ------------------------------------------------------------------------------ | ------------------------------ |
+| `three-recording-studio/core`           | Session, controller, settings, results, timing, resolution and frame contracts | None                           |
+| `three-recording-studio/ui`             | Default panel and independently mountable views                                | None                           |
+| `three-recording-studio/destinations`   | PNG memory/folder/receiver destinations and finalized-file saving              | None                           |
+| `three-recording-studio/capture/webgl`  | WebGL capture adapter                                                          | Three.js                       |
+| `three-recording-studio/capture/webgpu` | WebGPU capture adapter                                                         | Three.js                       |
+| `three-recording-studio/capture/camera` | Camera-fitting utilities                                                       | Three.js                       |
+| `three-recording-studio/encoding`       | MP4 encoder                                                                    | Optional Mediabunny dependency |
+
+The original root import remains compatible and includes both Three.js capture
+adapters. Install the supported Three.js peer when using that import or any
+built-in capture adapter. Three.js is optional for custom capture integrations
+using `/core`, `/ui`, and `/destinations`. None of these entry points install or
+require React, Quilt, or Theatre. Thumbnail creation and capture/encoding still
+require their documented browser APIs; renderer-neutral does not imply that all
+operations can execute in Node.

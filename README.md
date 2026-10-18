@@ -57,6 +57,11 @@ npm pack
 
 Browser tests require installed Google Chrome with native WebGPU available. The local receiver tests require loopback sockets. No unavailable GPU test is silently skipped.
 
+Use `three-recording-studio/core` for renderer-neutral sessions and settings,
+`/destinations` for saving, and `/capture/webgl` or `/capture/webgpu` for a specific
+Three.js adapter. The original root import remains compatible and requires
+Three.js; the narrow core/UI imports work without it.
+
 The built core/UI entry points do not import the encoding entry point; consumers can omit optional dependencies if they only need PNG output. The standalone receiver is included as `three-recording-receiver`.
 
 MIT license. Mediabunny retains its MPL-2.0 license. Three.js, Quilt and Theatre retain their respective licenses.

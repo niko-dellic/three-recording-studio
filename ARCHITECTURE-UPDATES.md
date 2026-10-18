@@ -16,7 +16,7 @@ Target release: 0.2.0 (new public APIs; final version checked against npm before
 - [ ] 9. Encoding/storage composition, buffered default and supported streaming.
 - [ ] 10. Reusable adapter contracts and consumer regression harness.
 - [ ] 11. Complete runnable integration recipes and lifecycle documentation.
-- [ ] 12. Renderer-neutral and narrow capture entry points.
+- [x] 12. Renderer-neutral and narrow capture entry points.
 - [ ] Migrate and verify PreFORM without private input selectors/events or hidden settings CSS.
 - [ ] Final unit/browser/package/site/format/type/build/security checks, clean release commit/tag.
 - [ ] Publish npm, verify registry installation and release artifacts.
@@ -54,3 +54,8 @@ verification. No npm publication until all work and release gates are complete.
    Save state/retry/cancellation are independent of rendering. Eight result/controller
    tests and six targeted Chrome behaviors passed, including remount, upload retry,
    still replacement, PNG playback, MP4 scrubber and destination callbacks.
+
+7. Narrow imports: public /core, /destinations, and /capture/webgl, /webgpu,
+   /camera exports with optional Three.js peer for custom capture consumers.
+   Typecheck and clean packed installation pass; the verifier removes Three.js
+   before loading core/UI/destinations and checks every new capture entry point.

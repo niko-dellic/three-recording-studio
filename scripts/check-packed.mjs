@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
+import { mkdtemp, writeFile, readFile, rm, rename } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -89,6 +89,46 @@ try {
     { cwd: temporary, encoding: "utf8" },
   );
   assert.equal(receiverResult.trim(), "receiver ok");
+  const narrow = execFileSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      `
+    import {WebGLCaptureAdapter} from 'three-recording-studio/capture/webgl';
+    import {WebGPUCaptureAdapter} from 'three-recording-studio/capture/webgpu';
+    import {fitCamera} from 'three-recording-studio/capture/camera';
+    import {MemorySequenceDestination} from 'three-recording-studio/destinations';
+    console.log([WebGLCaptureAdapter, WebGPUCaptureAdapter, fitCamera, MemorySequenceDestination].map(value => typeof value).join(','));
+  `,
+    ],
+    { cwd: temporary, encoding: "utf8" },
+  );
+  assert.equal(narrow.trim(), "function,function,function,function");
+  // A renderer-neutral consumer must work with Three.js physically absent.
+  await rename(
+    join(temporary, "node_modules/three"),
+    join(temporary, "three-not-installed"),
+  );
+  const neutral = execFileSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      `
+    import {RenderSession, RenderController, RenderResults, createRecordingSettings} from 'three-recording-studio/core';
+    import {RenderPanel, RenderPreview} from 'three-recording-studio/ui';
+    import {MemorySequenceDestination} from 'three-recording-studio/destinations';
+    console.log([RenderSession, RenderController, RenderResults, createRecordingSettings, RenderPanel, RenderPreview, MemorySequenceDestination].map(value => typeof value).join(','));
+  `,
+    ],
+    { cwd: temporary, encoding: "utf8" },
+  );
+  assert.equal(
+    neutral.trim(),
+    "function,function,function,function,function,function,function",
+  );
+  assert.equal(manifest.peerDependenciesMeta.three.optional, true);
   console.log(
     `Packed install passed without demo or optional encoding dependencies: ${archive}`,
   );

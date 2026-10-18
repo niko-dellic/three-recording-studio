@@ -26,6 +26,26 @@
     "./encoding": {
       "types": "./dist/encoding/index.d.ts",
       "import": "./dist/encoding/index.js"
+    },
+    "./core": {
+      "types": "./dist/core/index.d.ts",
+      "import": "./dist/core/index.js"
+    },
+    "./capture/webgl": {
+      "types": "./dist/capture/webgl.d.ts",
+      "import": "./dist/capture/webgl.js"
+    },
+    "./capture/webgpu": {
+      "types": "./dist/capture/webgpu.d.ts",
+      "import": "./dist/capture/webgpu.js"
+    },
+    "./capture/camera": {
+      "types": "./dist/capture/camera.d.ts",
+      "import": "./dist/capture/camera.js"
+    },
+    "./destinations": {
+      "types": "./dist/destinations/index.d.ts",
+      "import": "./dist/destinations/index.js"
     }
   },
   "bin": {
@@ -105,5 +125,10 @@
   ],
   "publishConfig": {
     "access": "public"
+  },
+  "peerDependenciesMeta": {
+    "three": {
+      "optional": true
+    }
   }
 }
