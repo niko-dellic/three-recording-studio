@@ -1,6 +1,6 @@
 {
   "name": "three-recording-studio",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Frame-exact render sessions and a themed render window for Three.js",
   "type": "module",
   "license": "MIT",

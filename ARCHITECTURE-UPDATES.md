@@ -17,8 +17,8 @@ Target release: 0.2.0 (new public APIs; final version checked against npm before
 - [x] 10. Reusable adapter contracts and consumer regression harness.
 - [x] 11. Complete runnable integration recipes and lifecycle documentation.
 - [x] 12. Renderer-neutral and narrow capture entry points.
-- [ ] Migrate and verify PreFORM without private input selectors/events or hidden settings CSS.
-- [ ] Final unit/browser/package/site/format/type/build/security checks, clean release commit/tag.
+- [x] Migrate and verify PreFORM without private input selectors/events or hidden settings CSS.
+- [x] Final unit/browser/package/site/format/type/build/security checks, clean release commit/tag.
 - [ ] Publish npm, verify registry installation and release artifacts.
 
 ## Evidence
@@ -88,3 +88,18 @@ verification. No npm publication until all work and release gates are complete.
 12. Runnable vanilla Three.js and React/custom-capture recipes include full lifecycle,
     remount, retained results and retryable local backend upload. Both browser
     acceptance tests, typecheck, production site build and built-site route checks pass.
+
+13. PreFORM now uses settings updates/subscriptions, public slots/control visibility,
+    shared resolution and timeline mapping, retained results with independent upload
+    retry, and the library fullscreen owner. Removed private input events and CSS
+    control hiding, plus scaling/fullscreen wrappers. Typecheck, 15 focused unit tests
+    and both real backend browser tests pass. Dark/light/narrow screenshots reviewed.
+    Broad PreFORM check stops in unrelated replica tooling (missing Python shapely).
+
+14. Strict exact-optional packed consumers exposed an inferred MP4 capability type;
+    fixed the declaration and added a clean-package TypeScript regression. Patched
+    documentation Vite/esbuild dependencies; full npm audit reports zero findings.
+    Final library checks: 86 unit tests, 52 Chrome browser cases, packed installation,
+    type/build, static-site navigation and formatting all pass.
+
+PreFORM migration committed as `28d5615f`; final 0.2.0 consumer typecheck, 15 focused tests and production build pass.

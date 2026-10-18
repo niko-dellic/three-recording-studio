@@ -6,7 +6,7 @@ A render workspace for existing Three.js scenes: exact frame timing, independent
 
 ![Three Recording Studio demo](https://three-recording-studio.vercel.app/studio.png)
 
-**0.1.0 is available on [npm](https://www.npmjs.com/package/three-recording-studio).**
+**0.2.0 is available on [npm](https://www.npmjs.com/package/three-recording-studio).**
 
 ```sh
 npm install three-recording-studio three@~0.186.1

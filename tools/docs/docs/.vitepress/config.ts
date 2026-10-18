@@ -68,7 +68,7 @@ export default defineConfig({
       },
     ],
     footer: {
-      message: "Three Recording Studio · 0.1.0",
+      message: "Three Recording Studio · 0.2.0",
       copyright: "MIT licensed",
     },
     nav: [
