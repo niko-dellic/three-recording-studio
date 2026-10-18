@@ -11,6 +11,9 @@ export interface WebSocketDestinationOptions {
   timeoutMs?: number;
 }
 export class WebSocketDestination implements RenderDestination {
+  capabilities() {
+    return { transparent: true, resumable: true };
+  }
   private socket?: WebSocket;
   private signal?: AbortSignal;
   private job?: RenderJob;

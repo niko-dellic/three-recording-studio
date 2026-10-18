@@ -36,6 +36,11 @@ export class RenderProgress extends RenderComponent {
         this.status.textContent =
           options.controller.error ??
           progress.error ??
+          (options.controller.inspection?.valid === false
+            ? options.controller.inspection.issues
+                .map((issue) => issue.message)
+                .join("; ")
+            : undefined) ??
           `${progress.state} · ${progress.completed} / ${progress.total} frames · ${elapsed}s${eta}`;
       }),
     );

@@ -8,6 +8,9 @@ import { pngBlob } from "./pixels.js";
 
 /** Write PNGs into a fresh subfolder of a user-selected directory. */
 export class DirectoryDestination implements RenderDestination {
+  capabilities() {
+    return { transparent: true, resumable: false };
+  }
   private output?: FileSystemDirectoryHandle;
   private signal?: AbortSignal;
   private job?: RenderJob;

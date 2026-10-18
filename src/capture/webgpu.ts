@@ -34,10 +34,7 @@ export class WebGPUCaptureAdapter implements CaptureAdapter {
   private target?: RenderTarget;
   private settings?: RenderSettings;
   constructor(private readonly options: WebGPUCaptureOptions) {}
-  async check(
-    settings: RenderSettings,
-    context?: Pick<PreparationContext, "signal">,
-  ) {
+  async capabilities(context?: Pick<PreparationContext, "signal">) {
     context?.signal.throwIfAborted();
     await this.options.renderer.init();
     context?.signal.throwIfAborted();
@@ -50,6 +47,18 @@ export class WebGPUCaptureAdapter implements CaptureAdapter {
         "WebGPU capture requires native WebGPU; select WebGL mode for fallback",
       );
     const max = backend.device?.limits.maxTextureDimension2D ?? 8192;
+    return {
+      transparent: true,
+      cameraFit: true,
+      maxWidth: max,
+      maxHeight: max,
+    };
+  }
+  async check(
+    settings: RenderSettings,
+    context?: Pick<PreparationContext, "signal">,
+  ) {
+    const { maxWidth: max } = await this.capabilities(context);
     if (settings.width > max || settings.height > max)
       throw new Error(`Output exceeds WebGPU limit ${max}`);
   }

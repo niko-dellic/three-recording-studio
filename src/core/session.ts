@@ -1,4 +1,7 @@
-import { resolveRenderSettings, resolveResolution } from "./resolution.js";
+import { validateJob } from "./validation.js";
+export { validateJob } from "./validation.js";
+import { inspectRender, PreflightError } from "./capabilities.js";
+import { resolveRenderSettings } from "./resolution.js";
 import { frameSceneTime } from "./timeline.js";
 import { validateCapturedFrame, InvalidFrameError } from "./frames.js";
 import type {
@@ -11,41 +14,6 @@ import type {
   RenderJob,
   SessionOptions,
 } from "./types.js";
-export function validateJob(job: RenderJob): void {
-  resolveResolution(job);
-  for (const key of ["width", "height", "startFrame", "endFrame"] as const) {
-    if (
-      !Number.isSafeInteger(job[key]) ||
-      job[key] < (key === "width" || key === "height" ? 1 : 0)
-    )
-      throw new Error(`Invalid ${key}`);
-  }
-  if (!Number.isFinite(job.fps) || job.fps <= 0 || job.fps > 240)
-    throw new Error("FPS must be between 0 and 240");
-  if (
-    job.sampleIntervalSeconds !== undefined &&
-    (!Number.isFinite(job.sampleIntervalSeconds) ||
-      job.sampleIntervalSeconds <= 0)
-  )
-    throw new Error(
-      "Sample interval must be a positive finite number of seconds",
-    );
-  if (
-    !Number.isFinite(job.endFrame * (job.sampleIntervalSeconds ?? 1 / job.fps))
-  )
-    throw new Error("Scene time must be finite");
-  if (job.endFrame < job.startFrame)
-    throw new Error("End frame precedes start frame");
-  if (job.fileName !== undefined && !/^[a-zA-Z0-9_-]{1,80}$/.test(job.fileName))
-    throw new Error("Invalid file name");
-  if (!/^[a-zA-Z0-9_-]{1,80}$/.test(job.id) || !job.contentId.trim())
-    throw new Error("Supply a safe job ID and nonempty contentId");
-  if (
-    job.cameraFit &&
-    !["auto", "horizontal", "vertical"].includes(job.cameraFit)
-  )
-    throw new Error("Invalid camera fit");
-}
 export class RenderSession {
   private listeners = new Set<(progress: Progress) => void>();
   private frameListeners = new Set<
@@ -65,6 +33,14 @@ export class RenderSession {
   constructor(private readonly options: SessionOptions) {}
   get status(): Readonly<Progress> {
     return { ...this.progress };
+  }
+  /** Read-only checks: never opens a destination or acquires animation state. */
+  inspect(
+    job: RenderJob,
+    destination: RenderDestination,
+    signal?: AbortSignal,
+  ) {
+    return inspectRender(job, this.options.capture, destination, signal);
   }
   get busy(): boolean {
     return !!this.pending;
@@ -213,7 +189,8 @@ export class RenderSession {
     });
     try {
       signal.throwIfAborted();
-      await this.options.capture.check?.(job, { signal });
+      const inspection = await this.inspect(job, destination, signal);
+      if (!inspection.valid) throw new PreflightError(inspection);
       signal.throwIfAborted();
       phase = "open";
       destinationAttempted = true;

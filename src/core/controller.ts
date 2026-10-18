@@ -1,3 +1,4 @@
+import type { PreflightReport } from "./capabilities.js";
 import { resolveRenderSettings } from "./resolution.js";
 import { RenderResults, type RenderResultInput } from "./results.js";
 import { createFrameThumbnail } from "./thumbnail.js";
@@ -34,6 +35,10 @@ export class RenderController {
   private unsubscribeFrame: () => void;
   private thumbnail?: Promise<Blob | undefined>;
   private activeJob?: RenderJob;
+  inspection?: PreflightReport;
+  private inspectionTarget?: RenderDestination;
+  private inspectionAbort?: AbortController;
+  private unsubscribeSettings: () => void;
   channel = "1";
   error?: string;
   private operation = false;
@@ -67,6 +72,32 @@ export class RenderController {
         fileName: options.job.fileName ?? options.job.id,
       });
     this.unsubscribe = this.session.subscribe(() => this.publish());
+    this.unsubscribeSettings = this.settings.subscribe(() => {
+      this.inspection = undefined;
+      this.publish();
+      if (this.inspectionTarget)
+        void this.inspect(this.inspectionTarget).catch((error) => {
+          if (error?.name !== "AbortError") this.reportError(error);
+        });
+    });
+  }
+  /** Watch a configured destination without invoking its picker or opening it. */
+  async inspect(destination: RenderDestination): Promise<PreflightReport> {
+    if (this.disposed) throw new Error("Render controller is disposed");
+    this.inspectionTarget = destination;
+    this.inspectionAbort?.abort();
+    const abort = new AbortController();
+    this.inspectionAbort = abort;
+    const report = await this.session.inspect(
+      this.getJob(),
+      destination,
+      abort.signal,
+    );
+    if (!abort.signal.aborted && !this.disposed) {
+      this.inspection = report;
+      this.publish();
+    }
+    return report;
   }
   get busy() {
     return (
@@ -172,6 +203,8 @@ export class RenderController {
       let image: CapturedFrame | undefined;
       if (destination) {
         await this.session.start(stillJob, {
+          capabilities: (context) => destination.capabilities?.(context) ?? {},
+          check: (job, context) => destination.check?.(job, context),
           open: (job, signal) => destination.open(job, signal),
           async write(value, context) {
             await destination.write(value, context);
@@ -211,6 +244,8 @@ export class RenderController {
     this.disposed = true;
     this.unsubscribe();
     this.unsubscribeFrame();
+    this.unsubscribeSettings();
+    this.inspectionAbort?.abort();
     this.thumbnail = undefined;
     if (!this.options.results) this.results.dispose();
     this.listeners.clear();

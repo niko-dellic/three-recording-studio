@@ -1,3 +1,4 @@
+import type { RenderCapabilities } from "./capabilities.js";
 export type CameraFit = "auto" | "horizontal" | "vertical";
 export interface RenderSettings {
   width: number;
@@ -47,6 +48,10 @@ export interface CapturedFrame {
   height: number;
 }
 export interface CaptureAdapter {
+  /** Discover constraints without allocating per-render resources. */
+  capabilities?(
+    context: Pick<PreparationContext, "signal">,
+  ): RenderCapabilities | Promise<RenderCapabilities>;
   /** Optional read-only preflight, before destination opening or scene acquisition. */
   check?(
     settings: RenderSettings,
@@ -61,6 +66,14 @@ export interface CaptureAdapter {
   dispose(): void | Promise<void>;
 }
 export interface RenderDestination {
+  capabilities?(
+    context: Pick<PreparationContext, "signal">,
+  ): RenderCapabilities | Promise<RenderCapabilities>;
+  /** Read-only validation. Must not prompt, write files, or open network sessions. */
+  check?(
+    job: RenderJob,
+    context: Pick<PreparationContext, "signal">,
+  ): void | Promise<void>;
   /** Validate before acquiring scene. Return durably saved frame indices, if resumable. */
   open(job: RenderJob, signal: AbortSignal): Promise<ReadonlySet<number>>;
   write(frame: CapturedFrame, context: FrameContext): Promise<void>;

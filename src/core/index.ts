@@ -7,3 +7,5 @@ export * from "./thumbnail.js";
 export * from "./frames.js";
 export * from "./resolution.js";
 export * from "./timeline.js";
+
+export * from "./capabilities.js";

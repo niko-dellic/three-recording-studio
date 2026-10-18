@@ -1700,3 +1700,38 @@ test("one fullscreen control survives rendering completion and moves into playba
     page.locator(".trs-preview-tools [data-output-fullscreen]"),
   ).toBeVisible();
 });
+
+test("capability inspection drives opaque output and dimension feedback before rendering", async ({
+  page,
+}) => {
+  await page.goto("/demo/?backend=webgl");
+  await page.waitForFunction(() => !!(window as any).trsDemo);
+  await page.evaluate(async () => {
+    const { panel } = (window as any).trsDemo;
+    panel.setTransparencySupported(true);
+    panel.updateSettings({ transparent: true, width: 641 });
+    const destination = {
+      capabilities: () => ({ transparent: false, widthMultiple: 2 }),
+      async open() {
+        throw new Error("Must not open");
+      },
+      async write() {},
+      async close() {},
+      async abort() {},
+    };
+    await panel.recording.inspect(destination);
+  });
+  await expect(page.locator('[name="transparent"]')).not.toBeChecked();
+  await expect(page.locator('[name="transparent"]')).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "Render", exact: true }),
+  ).toBeDisabled();
+  await expect(page.locator(".trs-status")).toContainText("multiple of 2");
+  await page.locator('[name="width"]').fill("640");
+  await expect(
+    page.getByRole("button", { name: "Render", exact: true }),
+  ).toBeEnabled();
+  expect(
+    await page.evaluate(() => (window as any).trsDemo.session.status.state),
+  ).toBe("idle");
+});

@@ -21,6 +21,7 @@ export class RenderSettingsView extends RenderComponent {
   private reflectingSettings = false;
   private transparencySupported = true;
   private preferredTransparency = true;
+  private manualTransparencySupported = true;
   constructor(private readonly viewOptions: RenderSettingsViewOptions) {
     super(viewOptions);
     this.recording = viewOptions.controller;
@@ -213,10 +214,31 @@ export class RenderSettingsView extends RenderComponent {
   }
   private readonly recording: RenderController;
   private update() {
+    const inspection = this.recording.inspection;
+    if (inspection) {
+      const supportsAlpha =
+        inspection.capture.transparent !== false &&
+        inspection.destination.transparent !== false;
+      this.applyTransparencySupport(
+        this.manualTransparencySupported && supportsAlpha,
+        "Selected capture or format requires opaque output",
+      );
+      if (
+        inspection.capture.cameraFit === false &&
+        this.settings.getSnapshot().cameraFit !== "auto"
+      )
+        this.settings.updateSettings({ cameraFit: "auto" });
+      const camera = this.fields.get("cameraFit")!;
+      camera.parentElement!.title =
+        inspection.capture.cameraFit === false
+          ? "Camera fitting is controlled by the application"
+          : "";
+    }
     for (const [name, field] of this.fields)
       field.disabled =
         this.recording.busy ||
-        (name === "transparent" && !this.transparencySupported);
+        (name === "transparent" && !this.transparencySupported) ||
+        (name === "cameraFit" && inspection?.capture.cameraFit === false);
     for (const control of this.element.querySelectorAll<
       HTMLInputElement | HTMLButtonElement | HTMLSelectElement
     >(
@@ -419,6 +441,16 @@ export class RenderSettingsView extends RenderComponent {
   }
   /** Snapshot settings without consulting DOM fields. */
   setTransparencySupported(supported: boolean) {
+    this.manualTransparencySupported = supported;
+    const report = this.recording.inspection;
+    this.applyTransparencySupport(
+      supported &&
+        report?.capture.transparent !== false &&
+        report?.destination.transparent !== false,
+      "Selected capture or format requires opaque output",
+    );
+  }
+  private applyTransparencySupport(supported: boolean, reason: string) {
     const field = this.fields.get("transparent") as HTMLInputElement;
     if (supported !== this.transparencySupported) {
       if (!supported) {
@@ -428,7 +460,7 @@ export class RenderSettingsView extends RenderComponent {
       this.transparencySupported = supported;
     }
     field.disabled = !supported || this.recording.busy;
-    field.parentElement!.title = supported ? "" : "MP4 output is opaque";
+    field.parentElement!.title = supported ? "" : reason;
     this.settings.updateSettings({ transparent: field.checked });
   }
 }

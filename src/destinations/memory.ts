@@ -75,6 +75,14 @@ export async function zipFrames(
   return new Blob([...parts, ...central, end], { type: "application/zip" });
 }
 export class MemorySequenceDestination implements RenderDestination {
+  capabilities() {
+    return {
+      transparent: true,
+      resumable: false,
+      maxFrames: 65535,
+      memoryLimitBytes: this.options.maxBytes ?? 128 * 1024 * 1024,
+    };
+  }
   private frames: SequenceFrame[] = [];
   private bytes = 22;
   private job!: RenderJob;
@@ -86,12 +94,15 @@ export class MemorySequenceDestination implements RenderDestination {
       maxBytes?: number;
     },
   ) {}
-  async open(job: RenderJob, signal: AbortSignal) {
+  check(job: RenderJob) {
     const limit = this.options.maxBytes ?? 128 * 1024 * 1024;
     if (!Number.isSafeInteger(limit) || limit < 1)
       throw Error("Invalid PNG memory limit");
     if (job.endFrame - job.startFrame + 1 > 65535)
       throw Error("PNG memory export supports at most 65535 frames");
+  }
+  async open(job: RenderJob, signal: AbortSignal) {
+    this.check(job);
     this.job = { ...job };
     this.signal = signal;
     this.frames = [];

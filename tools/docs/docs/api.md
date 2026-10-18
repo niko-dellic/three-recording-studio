@@ -320,3 +320,34 @@ fullscreen and moves the same control; applications should not add a second
 fullscreen button. Exiting restores the previous preview zoom/pan state without
 changing the application's camera. The control is disabled if the document does
 not support fullscreen.
+
+## Capabilities and preflight
+
+Capture adapters and destinations may expose `capabilities(context)` and
+`check(job, context)` methods. Capabilities describe transparency, camera fitting,
+maximum dimensions/frame count, required dimension multiples, memory limits, and
+resume support. Omitted values are unknown. `check` probes availability without
+opening storage, prompting for permissions, or acquiring animation state. A GPU
+probe may initialize the renderer's device, but must not allocate per-job targets.
+
+`session.inspect(job, destination, signal?)` returns a `PreflightReport` with
+separate capture/destination capabilities, effective output dimensions, and
+ordered issues attributed to settings, capture, or destination. It does not
+change session state. Invalid editable settings return issues; cancellation
+rejects. `session.start()` runs these checks again immediately before opening the
+destination. Failed preflight cannot acquire the scene or create output files.
+Older adapters without these optional methods continue to work.
+
+`controller.inspect(destination)` also publishes the report as `inspection` and
+rechecks that configured destination after settings edits. It never invokes the
+controller's destination factory or a folder picker. Call it again when the
+selected format/destination changes. Stale asynchronous checks are cancelled and
+cannot replace newer reports. The settings view disables unsupported transparency
+and application-owned camera fitting; transport disables animation rendering for
+an invalid report, while progress displays the reason. Still rendering remains
+available because it can use a different destination. Actual runs always validate
+again, including independently configured still destinations.
+
+Memory limits describe retained/encoded output ceilings, not predicted file sizes
+or total GPU/browser memory. Successful preflight cannot guarantee future disk,
+network, or device availability; execution errors still use normal diagnostics.

@@ -47,18 +47,28 @@ export class WebGLCaptureAdapter implements CaptureAdapter {
         "gl_FragColor = texture2D( tDiffuse, vUv ); gl_FragColor.rgb = gl_FragColor.a > 0.0 ? gl_FragColor.rgb / gl_FragColor.a : vec3(0.0);",
       );
   }
-  check(settings: RenderSettings) {
+  capabilities() {
     const { renderer } = this.options;
-    if (renderer.getContext().isContextLost())
-      throw new Error("WebGL context is lost");
-    if (!renderer.extensions.has("EXT_color_buffer_float"))
-      throw new Error("Floating-point render targets are unavailable");
     const max = Math.min(
       renderer.capabilities.maxTextureSize,
       renderer
         .getContext()
         .getParameter(renderer.getContext().MAX_RENDERBUFFER_SIZE),
     );
+    return {
+      transparent: true,
+      cameraFit: true,
+      maxWidth: max,
+      maxHeight: max,
+    };
+  }
+  check(settings: RenderSettings) {
+    const { renderer } = this.options;
+    if (renderer.getContext().isContextLost())
+      throw new Error("WebGL context is lost");
+    if (!renderer.extensions.has("EXT_color_buffer_float"))
+      throw new Error("Floating-point render targets are unavailable");
+    const { maxWidth: max } = this.capabilities();
     if (settings.width > max || settings.height > max)
       throw new Error(`Output exceeds WebGL limit ${max}`);
   }

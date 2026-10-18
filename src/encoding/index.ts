@@ -30,13 +30,22 @@ export class Mp4Destination implements RenderDestination {
   private bytes = 0;
   private limitError?: Error;
   constructor(private readonly options: Mp4DestinationOptions) {}
-  async open(job: RenderJob, signal: AbortSignal) {
+  capabilities() {
+    return {
+      transparent: false,
+      widthMultiple: 2,
+      heightMultiple: 2,
+      resumable: false,
+      memoryLimitBytes: this.options.maxBytes ?? 256 * 1024 * 1024,
+    };
+  }
+  async check(job: RenderJob, context: { signal: AbortSignal }) {
+    context.signal.throwIfAborted();
     if (
       !Number.isSafeInteger(this.options.maxBytes ?? 256 * 1024 * 1024) ||
       (this.options.maxBytes ?? 1) <= 0
     )
       throw new Error("maxBytes must be a positive integer");
-    this.limitError = undefined;
     if (job.transparent)
       throw new Error("MP4 export is opaque; disable transparency or use PNG");
     if (job.width % 2 || job.height % 2)
@@ -51,6 +60,11 @@ export class Mp4Destination implements RenderDestination {
       throw new Error(
         "H.264 encoding is unavailable for these dimensions on this browser",
       );
+    context.signal.throwIfAborted();
+  }
+  async open(job: RenderJob, signal: AbortSignal) {
+    await this.check(job, { signal });
+    this.limitError = undefined;
     this.job = job;
     this.signal = signal;
     this.bytes = 0;

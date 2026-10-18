@@ -18,3 +18,5 @@ export * from "./core/controller.js";
 
 export * from "./core/results.js";
 export * from "./core/thumbnail.js";
+
+export * from "./core/capabilities.js";

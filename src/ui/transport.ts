@@ -49,7 +49,9 @@ export class RenderTransport extends RenderComponent {
   private update() {
     const recording = this.viewOptions.controller,
       progress = recording.status;
-    this.stillButton.disabled = this.renderButton.disabled = recording.busy;
+    this.stillButton.disabled = recording.busy;
+    this.renderButton.disabled =
+      recording.busy || recording.inspection?.valid === false;
     this.pauseButton.disabled =
       !recording.busy || progress.state === "cancelling";
     this.cancelButton.disabled = !recording.busy;

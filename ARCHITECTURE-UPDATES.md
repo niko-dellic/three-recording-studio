@@ -9,7 +9,7 @@ Target release: 0.2.0 (new public APIs; final version checked against npm before
 - [x] 2. Cooperative acquisition/preparation cancellation and reliable cleanup.
 - [x] 3. Composable preview, settings, transport, progress, and extension points.
 - [x] 4. Shared render results, retention, thumbnails, and independent saving/retry.
-- [ ] 5. Capability discovery and preflight validation.
+- [x] 5. Capability discovery and preflight validation.
 - [x] 6. Shared resolution and timeline mapping utilities.
 - [x] 7. Unified preview/fullscreen ownership, independent of session lifetime.
 - [x] 8. Frame-boundary validation and structured diagnostics.
@@ -64,3 +64,9 @@ verification. No npm publication until all work and release gates are complete.
    fullscreen overlay and completed playback bar. Preview navigation is restored
    on exit. Typecheck and five Chrome regressions pass, including completing an
    active render in fullscreen without duplicate controls or cancellation.
+
+9. Capability discovery: optional adapter/destination descriptors and read-only
+   checks produce structured reports before any output open or scene acquisition.
+   Controller inspections follow edits and discard stale probes; UI applies support
+   constraints. Typecheck, 35 targeted unit tests and five Chrome cases pass,
+   including native WebGPU/WebGL, MP4 encoding and capability-driven feedback.
