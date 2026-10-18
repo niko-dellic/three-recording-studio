@@ -10,3 +10,4 @@ export * from "./destinations/memory.js";
 export * from "./destinations/file.js";
 
 export * from "./core/settings.js";
+export * from "./core/frames.js";

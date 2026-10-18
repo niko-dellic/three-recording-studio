@@ -166,3 +166,17 @@ steps are attempted. Multiple errors are retained in `AggregateError.errors` wit
 individual causes instead of losing the original failure. Cleanup failures remain
 failures even if cancellation was requested. `dispose()` is idempotent and rejects
 new jobs immediately, while waiting for cooperative work and cleanup to finish.
+
+### Captured-frame validation and diagnostics
+
+The session validates each captured frame before preview listeners or destinations
+receive it: positive integer dimensions matching the execution job, a `Uint8Array`,
+and exactly `width * height * 4` packed bytes. Subarrays and cross-window buffers
+are supported. `validateCapturedFrame(frame, expected?)` is also public; it throws
+`InvalidFrameError` with code `INVALID_FRAME`. Color space, origin and alpha semantics
+remain adapter responsibilities verified by image-based tests.
+
+`Progress.diagnostics` reports immutable `{code, phase, jobId, frame?, message}`
+entries for execution and cleanup failures. `error` remains the legacy display
+string; thrown original errors and aggregate causes are preserved. Diagnostics
+reset for each run, and ordinary cancellation does not report a failure.

@@ -75,6 +75,27 @@ export type SessionState =
   | "cancelled"
   | "failed"
   | "disposed";
+export type RenderPhase =
+  | "preflight"
+  | "open"
+  | "acquire"
+  | "prepare"
+  | "seek"
+  | "ready"
+  | "capture"
+  | "write"
+  | "finalize"
+  | "abort"
+  | "finish"
+  | "restore"
+  | "cleanup";
+export interface RenderDiagnostic {
+  readonly code: "INVALID_FRAME" | "RENDER_FAILED" | "CLEANUP_FAILED";
+  readonly phase: RenderPhase;
+  readonly jobId: string;
+  readonly frame?: number;
+  readonly message: string;
+}
 export interface Progress {
   state: SessionState;
   completed: number;
@@ -83,6 +104,8 @@ export interface Progress {
   elapsedMs: number;
   etaMs?: number;
   error?: string;
+  /** Structured failures; error remains the backwards-compatible display string. */
+  diagnostics?: readonly RenderDiagnostic[];
 }
 export interface SessionOptions {
   animation: AnimationAdapter;

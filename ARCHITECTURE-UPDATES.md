@@ -12,7 +12,7 @@ Target release: 0.2.0 (new public APIs; final version checked against npm before
 - [ ] 5. Capability discovery and preflight validation.
 - [ ] 6. Shared resolution and timeline mapping utilities.
 - [ ] 7. Unified preview/fullscreen ownership, independent of session lifetime.
-- [ ] 8. Frame-boundary validation and structured diagnostics.
+- [x] 8. Frame-boundary validation and structured diagnostics.
 - [ ] 9. Encoding/storage composition, buffered default and supported streaming.
 - [ ] 10. Reusable adapter contracts and consumer regression harness.
 - [ ] 11. Complete runnable integration recipes and lifecycle documentation.
@@ -31,6 +31,10 @@ Target release: 0.2.0 (new public APIs; final version checked against npm before
    WebGL/WebGPU capture tests passed, including 4K readback, alpha, frame order,
    slow persistence, and renderer restoration. Added acquisition cancellation,
    partial preparation cleanup, multi-error preservation, and disposal regressions.
+
+3. Frame validation added before all frame consumers; phase/job/frame diagnostics
+   retain legacy error compatibility. Frame, session and readback regressions and
+   typecheck pass. Implemented before UI decomposition so components share diagnostics.
 
 Do not consider individual checkboxes a substitute for final requirement-by-requirement
 verification. No npm publication until all work and release gates are complete.

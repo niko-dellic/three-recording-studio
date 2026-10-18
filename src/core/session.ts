@@ -1,7 +1,10 @@
+import { validateCapturedFrame, InvalidFrameError } from "./frames.js";
 import type {
   CapturedFrame,
   Progress,
   PreparationContext,
+  RenderDiagnostic,
+  RenderPhase,
   RenderDestination,
   RenderJob,
   SessionOptions,
@@ -151,6 +154,28 @@ export class RenderSession {
     let snapshot: unknown;
     let acquired = false;
     const failures: unknown[] = [];
+    const diagnostics: RenderDiagnostic[] = [];
+    let phase: RenderPhase = "preflight";
+    let currentFrame: number | undefined;
+    const diagnose = (
+      error: unknown,
+      failedPhase: RenderPhase,
+      cleanup = false,
+    ) => {
+      diagnostics.push(
+        Object.freeze({
+          code: cleanup
+            ? "CLEANUP_FAILED"
+            : error instanceof InvalidFrameError
+              ? "INVALID_FRAME"
+              : "RENDER_FAILED",
+          phase: failedPhase,
+          jobId: job.id,
+          frame: currentFrame,
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    };
     let cleanupFailed = false;
     let destinationAttempted = false;
     let captureAttempted = false;
@@ -161,7 +186,12 @@ export class RenderSession {
         deferred.push(cleanup);
       },
     };
-    const cleanupFailure = (message: string, cause: unknown) => {
+    const cleanupFailure = (
+      message: string,
+      cause: unknown,
+      failedPhase: RenderPhase,
+    ) => {
+      diagnose(cause, failedPhase, true);
       cleanupFailed = true;
       failures.push(new Error(message, { cause }));
     };
@@ -173,6 +203,7 @@ export class RenderSession {
       total,
       frame: undefined,
       error: undefined,
+      diagnostics: undefined,
       elapsedMs: 0,
       etaMs: undefined,
     });
@@ -180,12 +211,15 @@ export class RenderSession {
       signal.throwIfAborted();
       await this.options.capture.check?.(job, { signal });
       signal.throwIfAborted();
+      phase = "open";
       destinationAttempted = true;
       const saved = await destination.open(job, signal);
       signal.throwIfAborted();
+      phase = "acquire";
       snapshot = await this.options.animation.acquire(preparation);
       acquired = true;
       signal.throwIfAborted();
+      phase = "prepare";
       captureAttempted = true;
       await this.options.capture.prepare(job, preparation);
       signal.throwIfAborted();
@@ -214,10 +248,15 @@ export class RenderSession {
           delta: job.sampleIntervalSeconds ?? 1 / job.fps,
           signal,
         };
+        currentFrame = frame;
+        phase = "seek";
         await this.options.animation.seek(context);
+        phase = "ready";
         await this.options.animation.ready?.(context);
         signal.throwIfAborted();
+        phase = "capture";
         const image = await this.options.capture.capture(context);
+        validateCapturedFrame(image, job);
         signal.throwIfAborted();
         for (const listener of this.frameListeners) {
           try {
@@ -226,6 +265,7 @@ export class RenderSession {
             console.error("RenderSession preview", error);
           }
         }
+        phase = "write";
         await destination.write(image, context);
         signal.throwIfAborted();
         rendered++;
@@ -237,15 +277,17 @@ export class RenderSession {
           etaMs: (elapsedMs / rendered) * (total - completed - rendered),
         });
       }
+      phase = "finalize";
       await destination.close();
       signal.throwIfAborted();
     } catch (error) {
       failures.push(error);
+      diagnose(error, phase);
       if (destinationAttempted) {
         try {
           await destination.abort(error);
         } catch (error) {
-          cleanupFailure("Destination cleanup failed", error);
+          cleanupFailure("Destination cleanup failed", error, "abort");
         }
       }
     } finally {
@@ -253,21 +295,25 @@ export class RenderSession {
         try {
           await this.options.capture.finish();
         } catch (error) {
-          cleanupFailure("Capture cleanup failed", error);
+          cleanupFailure("Capture cleanup failed", error, "finish");
         }
       }
       if (acquired) {
         try {
           await this.options.animation.restore(snapshot);
         } catch (error) {
-          cleanupFailure("Application state restoration failed", error);
+          cleanupFailure(
+            "Application state restoration failed",
+            error,
+            "restore",
+          );
         }
       }
       for (const cleanup of deferred.reverse()) {
         try {
           await cleanup();
         } catch (error) {
-          cleanupFailure("Deferred resource cleanup failed", error);
+          cleanupFailure("Deferred resource cleanup failed", error, "cleanup");
         }
       }
     }
@@ -283,6 +329,7 @@ export class RenderSession {
       this.publish({
         state: cancelled ? "cancelled" : "failed",
         error: cancelled ? undefined : String(failure),
+        diagnostics: cancelled ? undefined : Object.freeze(diagnostics),
         elapsedMs: performance.now() - started,
         etaMs: undefined,
       });

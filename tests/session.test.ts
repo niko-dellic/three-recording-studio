@@ -333,3 +333,39 @@ it("disposal is idempotent and synchronously rejects new jobs", async () => {
   await disposing;
   expect(s.capture.dispose).toHaveBeenCalledOnce();
 });
+
+it("rejects malformed adapter output before preview or persistence and reports frame context", async () => {
+  const s = setup();
+  const preview = vi.fn();
+  s.session.onFrame(preview);
+  vi.mocked(s.capture.capture).mockResolvedValueOnce({
+    width: 2,
+    height: 2,
+    pixels: new Uint8Array(20),
+  });
+  await expect(s.session.start(job, s.destination)).rejects.toThrow(
+    "16 tightly packed",
+  );
+  expect(preview).not.toHaveBeenCalled();
+  expect(s.destination.write).not.toHaveBeenCalled();
+  expect(s.session.status.diagnostics).toMatchObject([
+    { code: "INVALID_FRAME", phase: "capture", jobId: "test", frame: 0 },
+  ]);
+  expect(s.animation.restore).toHaveBeenCalledOnce();
+  await s.session.start(job, s.destination);
+  expect(s.session.status.diagnostics).toBeUndefined();
+});
+it("reports persistence phase and retains cleanup diagnostics separately", async () => {
+  const s = setup();
+  vi.mocked(s.destination.write).mockRejectedValueOnce(new Error("offline"));
+  vi.mocked(s.capture.finish).mockRejectedValueOnce(
+    new Error("target cleanup"),
+  );
+  await expect(s.session.start(job, s.destination)).rejects.toBeInstanceOf(
+    AggregateError,
+  );
+  expect(s.session.status.diagnostics).toMatchObject([
+    { phase: "write", code: "RENDER_FAILED", message: "offline", frame: 0 },
+    { phase: "finish", code: "CLEANUP_FAILED", message: "target cleanup" },
+  ]);
+});
