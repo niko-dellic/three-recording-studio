@@ -2,6 +2,8 @@ export type CameraFit = "auto" | "horizontal" | "vertical";
 export interface RenderSettings {
   width: number;
   height: number;
+  /** Multiplies base dimensions once at execution; defaults to 1. */
+  resolutionMultiplier?: number;
   /** Output playback frame rate. */
   fps: number;
   /** Scene seconds between output frames. Defaults to 1 / fps. */

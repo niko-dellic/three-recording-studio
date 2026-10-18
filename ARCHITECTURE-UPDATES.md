@@ -10,7 +10,7 @@ Target release: 0.2.0 (new public APIs; final version checked against npm before
 - [ ] 3. Composable preview, settings, transport, progress, and extension points.
 - [ ] 4. Shared render results, retention, thumbnails, and independent saving/retry.
 - [ ] 5. Capability discovery and preflight validation.
-- [ ] 6. Shared resolution and timeline mapping utilities.
+- [x] 6. Shared resolution and timeline mapping utilities.
 - [ ] 7. Unified preview/fullscreen ownership, independent of session lifetime.
 - [x] 8. Frame-boundary validation and structured diagnostics.
 - [ ] 9. Encoding/storage composition, buffered default and supported streaming.
@@ -35,6 +35,10 @@ Target release: 0.2.0 (new public APIs; final version checked against npm before
 3. Frame validation added before all frame consumers; phase/job/frame diagnostics
    retain legacy error compatibility. Frame, session and readback regressions and
    typecheck pass. Implemented before UI decomposition so components share diagnostics.
+
+4. Shared resolution/timeline utilities and execution scaling: 38 targeted unit
+   tests and typecheck passed. Three focused Chrome tests passed, including actual
+   2x still pixel dimensions with unchanged base settings, settings updates, and sampling.
 
 Do not consider individual checkboxes a substitute for final requirement-by-requirement
 verification. No npm publication until all work and release gates are complete.

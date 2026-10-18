@@ -1,3 +1,5 @@
+import { resolveRenderSettings, resolveResolution } from "./resolution.js";
+import { frameSceneTime } from "./timeline.js";
 import { validateCapturedFrame, InvalidFrameError } from "./frames.js";
 import type {
   CapturedFrame,
@@ -10,6 +12,7 @@ import type {
   SessionOptions,
 } from "./types.js";
 export function validateJob(job: RenderJob): void {
+  resolveResolution(job);
   for (const key of ["width", "height", "startFrame", "endFrame"] as const) {
     if (
       !Number.isSafeInteger(job[key]) ||
@@ -95,6 +98,7 @@ export class RenderSession {
       return Promise.reject(new Error("Session is busy or disposed"));
     try {
       validateJob(job);
+      job = resolveRenderSettings(job);
     } catch (error) {
       return Promise.reject(error);
     }
@@ -241,10 +245,7 @@ export class RenderSession {
         }
         const context = {
           frame,
-          time:
-            job.sampleIntervalSeconds === undefined
-              ? frame / job.fps
-              : frame * job.sampleIntervalSeconds,
+          time: frameSceneTime(frame, job.fps, job.sampleIntervalSeconds),
           delta: job.sampleIntervalSeconds ?? 1 / job.fps,
           signal,
         };

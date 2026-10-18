@@ -1416,3 +1416,31 @@ test("public settings updates reflect in the panel and UI edits publish without 
     ),
   ).toBeUndefined();
 });
+
+test("resolution multiplier affects still pixels once and preserves editable base size", async ({
+  page,
+}) => {
+  await page.goto("/demo/?backend=webgl");
+  await page.waitForFunction(() => !!(window as any).trsDemo);
+  const result = await page.evaluate(async () => {
+    const { panel, session } = (window as any).trsDemo;
+    panel.updateSettings({
+      width: 32,
+      height: 16,
+      resolutionMultiplier: 2,
+      startFrame: 0,
+      endFrame: 0,
+    });
+    const frame = await session.preview(panel.getJob());
+    return {
+      actual: [frame.width, frame.height, frame.pixels.byteLength],
+      base: panel.settings.getSnapshot(),
+    };
+  });
+  expect(result.actual).toEqual([64, 32, 64 * 32 * 4]);
+  expect(result.base).toMatchObject({
+    width: 32,
+    height: 16,
+    resolutionMultiplier: 2,
+  });
+});

@@ -180,3 +180,21 @@ remain adapter responsibilities verified by image-based tests.
 entries for execution and cleanup failures. `error` remains the legacy display
 string; thrown original errors and aggregate causes are preserved. Diagnostics
 reset for each run, and ordinary cancellation does not report a failure.
+
+### Resolution and source-time mapping
+
+Optional `resolutionMultiplier` scales base width/height at session execution for
+stills and sequences. `resolveResolution(settings)` returns rounded integer output
+dimensions. `resolveRenderSettings(settings)` returns an execution copy with the
+multiplier removed, making resolution idempotent. Neither mutates the settings
+store. Odd MP4 dimensions remain an explicit encoder constraint, not silently
+adjusted by resolution scaling.
+
+`frameSceneTime(frame, fps, interval?)` and `lastRecordingFrame(duration, step)`
+centralize inclusive frame timing. `remapFrameRange({previous, next, previousStep,
+nextStep, startFrame, endFrame})` preserves source timestamps between monotonic
+`RecordingTimeline` mappings. Each mapping supplies `duration` (output-clock
+seconds), `timeAt(positionSeconds)` and `positionAt(sourceTime)`. The application
+owns speed, direction, gaps, and source-time units. Removed times snap to the nearest
+retained frame; ranges are normalized for reverse playback. Restoring gaps does
+not automatically expand an existing selection to the full duration.

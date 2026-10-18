@@ -369,3 +369,27 @@ it("reports persistence phase and retains cleanup diagnostics separately", async
     { phase: "finish", code: "CLEANUP_FAILED", message: "target cleanup" },
   ]);
 });
+
+it("resolves scaling once for preparation, persistence and still capture", async () => {
+  const s = setup();
+  await s.session.start(
+    { ...job, width: 1, height: 1, resolutionMultiplier: 2 },
+    s.destination,
+  );
+  expect(s.capture.prepare).toHaveBeenCalledWith(
+    expect.objectContaining({ width: 2, height: 2 }),
+    expect.anything(),
+  );
+  expect(s.destination.open).toHaveBeenCalledWith(
+    expect.objectContaining({ width: 2, height: 2 }),
+    expect.anything(),
+  );
+  expect(
+    await s.session.preview({
+      ...job,
+      width: 1,
+      height: 1,
+      resolutionMultiplier: 2,
+    }),
+  ).toMatchObject({ width: 2, height: 2 });
+});

@@ -22,6 +22,7 @@ export function createRecordingSettings(
   const keys = [
     "width",
     "height",
+    "resolutionMultiplier",
     "fps",
     "startFrame",
     "endFrame",
